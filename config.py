@@ -2,10 +2,10 @@
 
 # Nombres de las clases
 CLASS_NAMES = [
-    "Mild Acne",      # Clase 0 - Acné leve
-    "Moderate Acne",  # Clase 1 - Acné moderado
-    "Severe Acne",    # Clase 2 - Acné severo
-    "Very Severe"     # Clase 3 - Muy severo
+    "Leve",      # Clase 0 - Acné leve
+    "Moderado",  # Clase 1 - Acné moderado
+    "Severo",    # Clase 2 - Acné severo
+    "Muy Severo" # Clase 3 - Muy severo
 ]
 
 # Configuración del modelo
