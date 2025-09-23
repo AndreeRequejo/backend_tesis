@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 import torch
 import torch.nn.functional as F
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageStat
 import numpy as np
+import cv2
 import io
 import logging
 from datetime import datetime
@@ -15,6 +16,9 @@ import uvicorn
 
 # Scalar documentation
 from scalar_fastapi import get_scalar_api_reference, Layout
+
+# MTCNN para detección de rostros
+from facenet_pytorch import MTCNN
 
 # Importaciones locales
 from model import MyNet
@@ -30,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 model = None
 device = None
+mtcnn = None  # Detector de rostros MTCNN
 
 # Transformación de imagen
 transform = transforms.Compose([
@@ -85,11 +90,29 @@ class BatchResponse(BaseModel):
 # ===============================
 
 def load_model():
-    """Cargar modelo entrenado"""
-    global model, device
+    """Cargar modelo entrenado y inicializar MTCNN"""
+    global model, device, mtcnn
     
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Inicializar MTCNN para detección de rostros
+        try:
+            mtcnn = MTCNN(
+                image_size=160,  # Tamaño estándar para MTCNN
+                margin=0,
+                min_face_size=MTCNN_CONFIG["min_face_size"],
+                thresholds=MTCNN_CONFIG["thresholds"],
+                factor=MTCNN_CONFIG["factor"],
+                post_process=MTCNN_CONFIG["post_process"],
+                device=device,
+                keep_all=MTCNN_CONFIG["keep_all"],
+                select_largest=MTCNN_CONFIG["select_largest"]
+            )
+            logger.info("MTCNN inicializado correctamente")
+        except Exception as e:
+            logger.error(f"Error al inicializar MTCNN: {e}")
+            return False
         
         # Intentar cargar el modelo
         try:
@@ -110,7 +133,7 @@ def load_model():
         model = model.to(device)
         model.eval()
         
-        logger.info("Modelo listo")
+        logger.info("Modelo y MTCNN listos")
         return True
         
     except Exception as e:
@@ -146,6 +169,198 @@ def predict(image_tensor):
 def validate_image(file: UploadFile) -> bool:
     """Validar tipo de imagen"""
     return file.content_type in VALID_IMAGE_TYPES if file.content_type else False
+
+def calculate_image_blur(image_array):
+    """
+    Calcular el nivel de desenfoque usando múltiples métricas para mayor precisión
+    
+    Args:
+        image_array: Array numpy de la imagen en escala de grises
+        
+    Returns:
+        float: Valor de desenfoque (mayor valor = menos borroso)
+    """
+    # Método 1: Varianza del Laplaciano (método principal)
+    laplacian_var = cv2.Laplacian(image_array, cv2.CV_64F).var()
+    
+    # Método 2: Gradiente de Sobel para validación adicional
+    sobel_x = cv2.Sobel(image_array, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(image_array, cv2.CV_64F, 0, 1, ksize=3)
+    sobel_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
+    sobel_mean = np.mean(sobel_magnitude)
+    
+    # Combinar ambas métricas para mejor precisión
+    # Si la imagen tiene bordes definidos (Sobel alto), es menos probable que esté borrosa
+    combined_score = laplacian_var + (sobel_mean * 0.1)
+    
+    return combined_score
+
+def calculate_image_brightness(image):
+    """
+    Calcular el brillo promedio de la imagen
+    
+    Args:
+        image: Imagen PIL
+        
+    Returns:
+        float: Brillo promedio (0-255)
+    """
+    stat = ImageStat.Stat(image)
+    return stat.mean[0] if len(stat.mean) == 1 else sum(stat.mean) / len(stat.mean)
+
+def calculate_image_contrast(image):
+    """
+    Calcular el contraste de la imagen usando la desviación estándar
+    
+    Args:
+        image: Imagen PIL
+        
+    Returns:
+        float: Valor de contraste
+    """
+    stat = ImageStat.Stat(image)
+    return stat.stddev[0] if len(stat.stddev) == 1 else sum(stat.stddev) / len(stat.stddev)
+
+def validate_image_quality(image_bytes: bytes) -> tuple:
+    """
+    Validar la calidad general de la imagen con validaciones menos invasivas
+    
+    Args:
+        image_bytes: Bytes de la imagen
+        
+    Returns:
+        tuple: (es_válida, mensaje_error)
+    """
+    try:
+        # Verificar si las validaciones de calidad están habilitadas
+        if not IMAGE_QUALITY_CONFIG.get("enable_quality_checks", True):
+            return True, ""
+        
+        # Abrir imagen
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Verificar tamaño mínimo de imagen (validación básica)
+        width, height = image.size
+        if width < IMAGE_QUALITY_CONFIG["min_image_size"] or height < IMAGE_QUALITY_CONFIG["min_image_size"]:
+            return False, FACE_VALIDATION_MESSAGES["image_too_small"]
+        
+        # Convertir a array numpy para análisis
+        image_array = np.array(image)
+        
+        # Convertir a escala de grises para análisis de desenfoque
+        gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
+        
+        # Validar desenfoque (solo rechazar si está MUY borrosa)
+        blur_value = calculate_image_blur(gray_image)
+        logger.info(f"Valor de desenfoque calculado: {blur_value:.2f} (umbral: {IMAGE_QUALITY_CONFIG['max_blur_threshold']})")
+        
+        # Solo rechazar si está extremadamente borrosa
+        if blur_value < IMAGE_QUALITY_CONFIG["max_blur_threshold"]:
+            # Segunda validación: verificar si al menos hay algunos bordes detectables
+            edges = cv2.Canny(gray_image, 50, 150)
+            edge_density = np.sum(edges > 0) / edges.size
+            
+            # Si hay suficientes bordes detectados, la imagen probablemente es aceptable
+            if edge_density > 0.02:  # Al menos 2% de píxeles son bordes
+                logger.info(f"Imagen salvada por detección de bordes: {edge_density:.3f}")
+                # Continuar con otras validaciones pero no rechazar por desenfoque
+            else:
+                return False, FACE_VALIDATION_MESSAGES["blurry_image"]
+        
+        # En modo no estricto, solo hacer validaciones básicas
+        if not IMAGE_QUALITY_CONFIG.get("strict_mode", False):
+            return True, ""
+        
+        # Validaciones adicionales solo en modo estricto
+        # Validar brillo extremo
+        brightness = calculate_image_brightness(image)
+        if brightness < IMAGE_QUALITY_CONFIG["min_brightness"] or brightness > IMAGE_QUALITY_CONFIG["max_brightness"]:
+            return False, FACE_VALIDATION_MESSAGES["poor_lighting"]
+        
+        # Validar contraste muy bajo
+        contrast = calculate_image_contrast(image)
+        if contrast < IMAGE_QUALITY_CONFIG["min_contrast"]:
+            return False, FACE_VALIDATION_MESSAGES["low_contrast"]
+        
+        return True, ""
+        
+    except Exception as e:
+        logger.error(f"Error en validación de calidad de imagen: {e}")
+        return False, f"Error al evaluar la calidad de la imagen: {str(e)}"
+
+def validate_face_in_image(image_bytes: bytes) -> tuple:
+    """
+    Validar que la imagen contenga al menos un rostro de buena calidad usando MTCNN
+    
+    Args:
+        image_bytes: Bytes de la imagen
+        
+    Returns:
+        tuple: (es_válida, mensaje_error)
+    """
+    global mtcnn
+    
+    try:
+        # Abrir imagen
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Primero validar la calidad general de la imagen
+        quality_valid, quality_error = validate_image_quality(image_bytes)
+        if not quality_valid:
+            return False, quality_error
+        
+        # Detectar rostros con MTCNN
+        boxes, probs = mtcnn.detect(image)
+        
+        # Si no se detectaron rostros
+        if boxes is None or len(boxes) == 0:
+            return False, FACE_VALIDATION_MESSAGES["no_face"]
+        
+        # Verificar que al menos un rostro tenga buena confianza
+        valid_faces = [prob for prob in probs if prob >= IMAGE_QUALITY_CONFIG["min_confidence"]]
+        if len(valid_faces) == 0:
+            return False, FACE_VALIDATION_MESSAGES["low_confidence"]
+        
+        # Obtener el rostro con mayor confianza
+        best_face_idx = np.argmax(probs)
+        largest_box = boxes[best_face_idx]
+        best_confidence = probs[best_face_idx]
+        
+        # Verificar tamaño del rostro
+        face_width = largest_box[2] - largest_box[0]
+        face_height = largest_box[3] - largest_box[1]
+        
+        # Verificar tamaño mínimo del rostro
+        if face_width < IMAGE_QUALITY_CONFIG["min_face_size"] or face_height < IMAGE_QUALITY_CONFIG["min_face_size"]:
+            return False, FACE_VALIDATION_MESSAGES["face_too_small"]
+        
+        # Verificar ratio del área del rostro respecto a la imagen
+        image_width, image_height = image.size
+        face_area = face_width * face_height
+        image_area = image_width * image_height
+        face_area_ratio = face_area / image_area
+        
+        if face_area_ratio < IMAGE_QUALITY_CONFIG["min_face_area_ratio"]:
+            return False, FACE_VALIDATION_MESSAGES["face_too_small_ratio"]
+        
+        # Log de información de calidad
+        logger.info(f"Rostro detectado - Confianza: {best_confidence:.3f}, "
+                   f"Tamaño: {face_width:.0f}x{face_height:.0f}, "
+                   f"Ratio área: {face_area_ratio:.3f}")
+        
+        # Si hay múltiples rostros, dar una advertencia pero permitir el procesamiento
+        if len(boxes) > 1:
+            logger.info(f"Se detectaron {len(boxes)} rostros. Usando el más confiable.")
+        
+        return True, ""
+        
+    except Exception as e:
+        logger.error(f"Error en validación de rostro: {e}")
+        return False, f"Error al procesar la imagen para detección de rostros: {str(e)}"
 
 # ===============================
 # LIFESPAN
@@ -221,26 +436,55 @@ async def server():
             "predict": "/predict",
             "batch": "/predict/batch"
         },
-        "model_ready": model is not None
+        "model_ready": model is not None,
+        "face_detection_ready": mtcnn is not None,
+        "features": {
+            "face_validation": "MTCNN",
+            "quality_validation": {
+                "blur_detection": "Inteligente con detección de bordes",
+                "brightness_check": "Solo modo estricto",
+                "contrast_check": "Solo modo estricto",
+                "size_validation": True,
+                "confidence_threshold": IMAGE_QUALITY_CONFIG["min_confidence"],
+                "strict_mode": IMAGE_QUALITY_CONFIG.get("strict_mode", False),
+                "skip_option": "Disponible vía parámetro skip_quality_check"
+            },
+            "acne_classification": "CNN",
+            "batch_processing": True
+        },
+        "quality_requirements": {
+            "min_face_confidence": IMAGE_QUALITY_CONFIG["min_confidence"],
+            "min_face_size": f"{IMAGE_QUALITY_CONFIG['min_face_size']}x{IMAGE_QUALITY_CONFIG['min_face_size']} px",
+            "min_image_size": f"{IMAGE_QUALITY_CONFIG['min_image_size']}x{IMAGE_QUALITY_CONFIG['min_image_size']} px",
+            "min_face_area_ratio": f"{IMAGE_QUALITY_CONFIG['min_face_area_ratio']*100:.1f}%",
+            "blur_threshold": IMAGE_QUALITY_CONFIG["max_blur_threshold"],
+            "validation_mode": "Balanceado (menos invasivo)"
+        }
     }
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 async def predict_single(
-    file: UploadFile = File(..., description="Imagen para clasificar")
+    file: UploadFile = File(..., description="Imagen para clasificar"),
+    skip_quality_check: bool = False
 ):
     """
     Clasificar una sola imagen
     
-    Sube una imagen y obtén la clasificación de severidad del acné
+    Sube una imagen y obtén la clasificación de severidad del acné.
+    La imagen debe contener al menos un rostro visible.
+    
+    Args:
+        file: Archivo de imagen
+        skip_quality_check: Si es True, omite las validaciones de calidad de imagen (solo para testing)
     """
     start_time = datetime.utcnow()
     
     try:
         # Validaciones
-        if model is None:
+        if model is None or mtcnn is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Modelo no disponible"
+                detail="Modelo o detector de rostros no disponible"
             )
         
         if not validate_image(file):
@@ -256,6 +500,23 @@ async def predict_single(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Archivo vacío"
             )
+        
+        # Validar que la imagen contenga un rostro
+        # Si skip_quality_check es True, temporalmente deshabilitar validaciones de calidad
+        original_quality_setting = IMAGE_QUALITY_CONFIG.get("enable_quality_checks", True)
+        if skip_quality_check:
+            IMAGE_QUALITY_CONFIG["enable_quality_checks"] = False
+        
+        try:
+            face_valid, face_error_msg = validate_face_in_image(image_bytes)
+            if not face_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=face_error_msg
+                )
+        finally:
+            # Restaurar configuración original
+            IMAGE_QUALITY_CONFIG["enable_quality_checks"] = original_quality_setting
         
         image_tensor = process_image(image_bytes)
         
@@ -291,21 +552,22 @@ async def predict_single(
 
 @app.post("/predict/batch", response_model=BatchResponse, tags=["Prediction"])
 async def predict_batch(
-    files: List[UploadFile] = File(..., description="Lista de imágenes (máx 10)")
+    files: List[UploadFile] = File(..., description="Lista de imágenes (máx 3)")
 ):
     """
     Clasificar múltiples imágenes
     
-    Sube hasta 3 imágenes y obtén las clasificaciones
+    Sube hasta 3 imágenes y obtén las clasificaciones.
+    Cada imagen debe contener al menos un rostro visible.
     """
     start_time = datetime.utcnow()
     
     try:
         # Validaciones
-        if model is None:
+        if model is None or mtcnn is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Modelo no disponible"
+                detail="Modelo o detector de rostros no disponible"
             )
         
         if len(files) == 0:
@@ -335,6 +597,17 @@ async def predict_batch(
                     continue
                 
                 image_bytes = await file.read()
+                
+                # Validar rostro en la imagen
+                face_valid, face_error_msg = validate_face_in_image(image_bytes)
+                if not face_valid:
+                    predictions.append({
+                        "filename": file.filename,
+                        "success": False,
+                        "error": face_error_msg
+                    })
+                    continue
+                
                 image_tensor = process_image(image_bytes)
                 predicted_class, confidence, probabilities = predict(image_tensor)
                 
