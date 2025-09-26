@@ -91,13 +91,13 @@ IMAGE_QUALITY_CONFIG = {
 
 # Mensajes de validación de rostros y calidad
 FACE_VALIDATION_MESSAGES = {
-    "no_face": "No se detectó ningún rostro en la imagen. Por favor, sube una imagen que contenga al menos un rostro visible.",
-    "face_too_small": "El rostro detectado es demasiado pequeño. Por favor, usa una imagen con un rostro más grande y visible.",
-    "multiple_faces": "Se detectaron múltiples rostros. Para mejores resultados, usa una imagen con un solo rostro.",
-    "low_confidence": "La calidad de detección del rostro es baja. Por favor, usa una imagen más clara y bien iluminada.",
-    "blurry_image": "La imagen está demasiado borrosa. Por favor, usa una imagen más nítida y enfocada.",
-    "poor_lighting": "La iluminación de la imagen es inadecuada (muy oscura o muy brillante). Por favor, usa una imagen con mejor iluminación.",
-    "low_contrast": "La imagen tiene contraste muy bajo. Por favor, usa una imagen con mejor contraste.",
-    "image_too_small": "La imagen es demasiado pequeña. Por favor, usa una imagen de mayor resolución.",
-    "face_too_small_ratio": "El rostro ocupa muy poco espacio en la imagen. Por favor, usa una imagen donde el rostro sea más prominente.",
+    "no_face": "No se detectó ningún rostro en la imagen. Por favor, ingrese una imagen que contenga al menos un rostro visible.",
+    "face_too_small": "El rostro detectado es demasiado pequeño. Por favor, ingrese una imagen con un rostro más grande y visible.",
+    "multiple_faces": "Se detectaron múltiples rostros. Por favor, utilice una imagen con un solo rostro.",
+    "low_confidence": "La calidad de detección del rostro es baja. Por favor, ingrese una imagen más clara y bien iluminada.",
+    "blurry_image": "La imagen está demasiado borrosa. Por favor, ingrese una imagen más nítida y enfocada.",
+    "poor_lighting": "La iluminación de la imagen es inadecuada (muy oscura o muy brillante). Por favor, ingrese una imagen con mejor iluminación.",
+    "low_contrast": "La imagen tiene contraste muy bajo. Por favor, ingrese una imagen con mejor contraste.",
+    "image_too_small": "La imagen es demasiado pequeña. Por favor, ingrese una imagen de mayor resolución.",
+    "face_too_small_ratio": "El rostro ocupa muy poco espacio en la imagen. Por favor, ingrese una imagen donde el rostro sea más prominente.",
 }
