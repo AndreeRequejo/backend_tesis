@@ -29,7 +29,7 @@ Esta API utiliza deep learning para clasificar la severidad del acné en imágen
 * **Predicción en Lote**: `/predict/batch`
 
 ## Validación de Rostros y Calidad
-Todas las imágenes son validadas usando MTCNN y métricas de calidad balanceadas para garantizar que:
+Todas las imágenes son validadas usando MediaPipe y métricas de calidad balanceadas para garantizar que:
 - Contengan al menos un rostro visible con buena confianza (≥80%)
 - El rostro sea de tamaño suficiente (≥40x40 píxeles)
 - La imagen tenga calidad aceptable (solo rechaza imágenes extremadamente borrosas)
@@ -45,10 +45,9 @@ Todas las imágenes son validadas usando MTCNN y métricas de calidad balanceada
 - **0: Acné leve
 - **1: Acné moderado
 - **2: Acné severo
-- **3: Acné muy severo
 
 ## Formatos Soportados
-JPG, PNG, JPEG, AVIF
+JPG, PNG, JPEG
 
 ## Requisitos de Imagen (Relajados)
 - Debe contener al menos un rostro visible
@@ -64,7 +63,7 @@ PORT = 8080
 
 # Límites
 MAX_BATCH_SIZE = 3
-VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg", "image/avif"]
+VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg"]
 
 # Configuración MTCNN para validación de rostros
 MTCNN_CONFIG = {

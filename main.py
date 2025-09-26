@@ -366,7 +366,7 @@ app.add_middleware(
 # DOCUMENTACIÓN SCALAR
 # ===============================
 
-@app.get("/docs", include_in_schema=False)
+@app.get("/", include_in_schema=False)
 async def scalar_docs():
     """Documentación con Scalar"""
     return get_scalar_api_reference(
@@ -383,7 +383,7 @@ async def scalar_docs():
 # ENDPOINTS
 # ===============================
 
-@app.get("/", tags=["General"])
+@app.get("/status", tags=["General"])
 async def server():
     """Información de la API"""
     return {
