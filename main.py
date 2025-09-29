@@ -25,6 +25,9 @@ from scalar_fastapi import get_scalar_api_reference, Layout
 # Detección de rostros
 import mediapipe as mp
 
+# ONNX Runtime para modelo de anime/3D
+import onnxruntime as ort
+
 # Importaciones locales
 from model import MyNet
 from config import *
@@ -39,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 model = None
 device = None
+onnx_session = None  # Sesión ONNX para detección de anime/3D
 
 # Transformación de imagen
 transform = transforms.Compose([
@@ -64,8 +68,12 @@ class PredictionResponse(BaseModel):
                 "probabilidades": {
                     "Leve": 0.1234,
                     "Moderado": 0.8567,
-                    "Severo": 0.0156,
-                    "Muy Severo": 0.0043
+                    "Severo": 0.0156
+                },
+                "validacion_imagen": {
+                    "tipo_detectado": "real",
+                    "confianza_tipo": 0.9834,
+                    "es_real": True
                 },
                 "tiempo_procesamiento": 234.5
             }
@@ -78,6 +86,7 @@ class PredictionResponse(BaseModel):
     confianza: float
     confianza_porcentaje: str
     probabilidades: dict
+    validacion_imagen: dict
     tiempo_procesamiento: float
 
 class BatchResponse(BaseModel):
@@ -94,18 +103,16 @@ class BatchResponse(BaseModel):
 # ===============================
 
 def load_model():
-    """Cargar modelo entrenado y inicializar MTCNN"""
-    global model, device
+    """Cargar modelo entrenado y modelo ONNX"""
+    global model, device, onnx_session
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # No se requiere inicialización para RetinaFace
-
-        # Intentar cargar el modelo
+        # Cargar modelo de clasificación de acné
         try:
             model = torch.load(MODEL_PATH, weights_only=False, map_location=device)
-            logger.info("Modelo cargado")
+            logger.info("Modelo de acné cargado")
         except:
             # Fallback: crear arquitectura y cargar pesos
             model = MyNet()
@@ -116,16 +123,34 @@ def load_model():
                 model.load_state_dict(checkpoint)
             else:
                 model = checkpoint
-            logger.info("Modelo cargado")
+            logger.info("Modelo de acné cargado")
 
         model = model.to(device)
         model.eval()
 
-        logger.info("Modelo listo")
+        # Cargar modelo ONNX para detección de anime/3D
+        try:
+            # Configurar proveedores ONNX (GPU si está disponible, sino CPU)
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+            onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)
+            
+            # Inspeccionar las dimensiones esperadas del modelo
+            input_details = onnx_session.get_inputs()[0]
+            output_details = onnx_session.get_outputs()[0]
+            
+            logger.info(f"Modelo ONNX cargado con proveedores: {onnx_session.get_providers()}")
+            logger.info(f"Entrada esperada - Nombre: {input_details.name}, Forma: {input_details.shape}, Tipo: {input_details.type}")
+            logger.info(f"Salida esperada - Nombre: {output_details.name}, Forma: {output_details.shape}, Tipo: {output_details.type}")
+            
+        except Exception as e:
+            logger.error(f"Error al cargar modelo ONNX: {e}")
+            return False
+
+        logger.info("Modelos listos")
         return True
 
     except Exception as e:
-        logger.error(f"Error al cargar el modelo: {e}")
+        logger.error(f"Error al cargar los modelos: {e}")
         return False
 
 def process_image(image_bytes: bytes):
@@ -209,6 +234,117 @@ def calculate_image_contrast(image):
     stat = ImageStat.Stat(image)
     return stat.stddev[0] if len(stat.stddev) == 1 else sum(stat.stddev) / len(stat.stddev)
 
+def preprocess_image_for_onnx(image_bytes: bytes) -> np.ndarray:
+    """
+    Preprocesar imagen para el modelo ONNX
+    
+    Args:
+        image_bytes: Bytes de la imagen
+        
+    Returns:
+        numpy array: Array de imagen preprocesado para ONNX
+    """
+    global onnx_session
+    
+    # Abrir y convertir imagen
+    image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    
+    # Obtener las dimensiones esperadas del modelo dinámicamente
+    if onnx_session is not None:
+        input_shape = onnx_session.get_inputs()[0].shape
+        logger.info(f"Forma de entrada del modelo ONNX: {input_shape}")
+        
+        # Extraer dimensiones (asumiendo formato NCHW: [batch, channels, height, width])
+        if len(input_shape) == 4:
+            expected_height = input_shape[2] if isinstance(input_shape[2], int) else ONNX_IMAGE_SIZE
+            expected_width = input_shape[3] if isinstance(input_shape[3], int) else ONNX_IMAGE_SIZE
+        else:
+            expected_height = expected_width = ONNX_IMAGE_SIZE
+    else:
+        expected_height = expected_width = ONNX_IMAGE_SIZE
+    
+    logger.info(f"Redimensionando imagen a: {expected_width}x{expected_height}")
+    
+    # Redimensionar a tamaño esperado por el modelo ONNX
+    image = image.resize((expected_width, expected_height))
+    
+    # Convertir a array numpy y normalizar
+    image_array = np.array(image, dtype=np.float32)
+    image_array = image_array / 255.0  # Normalizar a [0,1]
+    
+    # Reorganizar dimensiones para ONNX: (batch_size, channels, height, width)
+    image_array = np.transpose(image_array, (2, 0, 1))
+    image_array = np.expand_dims(image_array, axis=0)
+    
+    logger.info(f"Forma final del array: {image_array.shape}")
+    
+    return image_array
+
+def validate_real_image(image_bytes: bytes) -> tuple:
+    """
+    Validar que la imagen sea una foto real de una persona usando modelo ONNX
+    
+    Args:
+        image_bytes: Bytes de la imagen
+        
+    Returns:
+        tuple: (es_real, confianza, tipo_detectado, mensaje_error)
+    """
+    global onnx_session
+    
+    if onnx_session is None:
+        return False, 0.0, "unknown", "Modelo ONNX no disponible"
+    
+    try:
+        # Preprocesar imagen
+        input_array = preprocess_image_for_onnx(image_bytes)
+        
+        # Obtener información de entrada del modelo ONNX
+        input_name = onnx_session.get_inputs()[0].name
+        expected_shape = onnx_session.get_inputs()[0].shape
+        
+        logger.info(f"Entrada del modelo - Nombre: {input_name}, Forma esperada: {expected_shape}, Forma actual: {input_array.shape}")
+        
+        # Verificar compatibilidad de formas antes de la predicción
+        if input_array.shape[2] != expected_shape[2] or input_array.shape[3] != expected_shape[3]:
+            logger.warning(f"Inconsistencia de dimensiones: esperado {expected_shape}, actual {input_array.shape}")
+        
+        # Realizar predicción
+        outputs = onnx_session.run(None, {input_name: input_array})
+        probabilities = outputs[0][0]  # Asumir que la salida son probabilidades
+        
+        # Aplicar softmax si es necesario (algunos modelos ya lo incluyen)
+        if np.sum(probabilities) > 1.01:  # Si la suma no es ~1, aplicar softmax
+            probabilities = np.exp(probabilities) / np.sum(np.exp(probabilities))
+        
+        # Obtener predicción
+        predicted_class = np.argmax(probabilities)
+        confidence = float(probabilities[predicted_class])
+        
+        # Verificar si hay suficientes clases en ANIME_CLASS_NAMES
+        if predicted_class >= len(ANIME_CLASS_NAMES):
+            logger.warning(f"Clase predicha {predicted_class} fuera de rango. Usando clase 0.")
+            predicted_class = 0
+            confidence = float(probabilities[0]) if len(probabilities) > 0 else 0.0
+        
+        predicted_type = ANIME_CLASS_NAMES[predicted_class]
+        
+        logger.info(f"Detección ONNX - Tipo: {predicted_type}, Confianza: {confidence:.4f}")
+        
+        # Si la predicción es "real", aplicar umbral estricto del 97%
+        if predicted_type == "real":
+            if confidence >= REAL_CLASS_CONFIDENCE_THRESHOLD:
+                return True, confidence, predicted_type, ""
+            else:
+                return False, confidence, predicted_type, FACE_VALIDATION_MESSAGES["low_real_confidence"]
+        else:
+            # Si detecta anime o 3D, rechazar independientemente de la confianza
+            return False, confidence, predicted_type, FACE_VALIDATION_MESSAGES["anime_detected"]
+    
+    except Exception as e:
+        logger.error(f"Error en validación de imagen real: {e}")
+        return False, 0.0, "error", f"Error al procesar la imagen: {str(e)}"
+
 def validate_image_quality(image_bytes: bytes) -> tuple:
     """
     Validar la calidad general de la imagen con validaciones menos invasivas
@@ -247,7 +383,7 @@ def validate_image_quality(image_bytes: bytes) -> tuple:
         # Solo rechazar si está extremadamente borrosa
         if blur_value < IMAGE_QUALITY_CONFIG["max_blur_threshold"]:
             # Segunda validación: verificar si al menos hay algunos bordes detectables
-            edges = cv2.Canny(gray_image, 50, 150)
+            edges = cv2.Canny(gray_image, 40, 150)
             edge_density = np.sum(edges > 0) / edges.size
             
             # Si hay suficientes bordes detectados, la imagen probablemente es aceptable
@@ -280,44 +416,83 @@ def validate_image_quality(image_bytes: bytes) -> tuple:
 
 def validate_face_in_image(image_bytes: bytes) -> tuple:
     """
-    Validar que la imagen contenga exactamente un rostro usando la nueva MTCNN (mtcnn)
+    Validar que la imagen contenga exactamente un rostro y sea una imagen real
     Args:
         image_bytes: Bytes de la imagen
     Returns:
-        tuple: (es_válida, mensaje_error)
+        tuple: (es_válida, mensaje_error, confianza_rostro, info_validacion)
     """
     try:
-        # Validar calidad general de la imagen (mantener)
+        # 1. Validar que sea una imagen real usando modelo ONNX
+        is_real, real_confidence, detected_type, real_error = validate_real_image(image_bytes)
+        if not is_real:
+            return False, real_error, None, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": False
+            }
+
+        # 2. Validar calidad general de la imagen
         quality_valid, quality_error = validate_image_quality(image_bytes)
         if not quality_valid:
-            return False, quality_error, None
+            return False, quality_error, None, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": True
+            }
 
-        # Convertir los bytes a imagen RGB
+        # 3. Convertir los bytes a imagen RGB
         try:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         except Exception as e:
             logger.error(f"No se pudo abrir la imagen: {e}")
-            return False, "No se pudo abrir la imagen. Asegúrate de que el archivo es una imagen válida.", None
+            return False, "No se pudo abrir la imagen. Asegúrate de que el archivo es una imagen válida.", None, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": True
+            }
 
         image_np = np.array(image)
         if image_np.ndim != 3 or image_np.shape[2] != 3:
             logger.error("La imagen no tiene 3 canales RGB")
-            return False, "La imagen debe tener 3 canales (RGB).", None
+            return False, "La imagen debe tener 3 canales (RGB).", None, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": True
+            }
 
-        # Usar mediapipe para detección de rostros
+        # 4. Usar mediapipe para detección de rostros
         mp_face_detection = mp.solutions.face_detection
         with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.8) as face_detection:
             results = face_detection.process(image_np)
             if not results.detections or len(results.detections) == 0:
-                return False, FACE_VALIDATION_MESSAGES["no_face"], None
+                return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
+                    "tipo_detectado": detected_type,
+                    "confianza_tipo": real_confidence,
+                    "es_real": True
+                }
             if len(results.detections) > 1:
-                return False, FACE_VALIDATION_MESSAGES["multiple_faces"], None
+                return False, FACE_VALIDATION_MESSAGES["multiple_faces"], None, {
+                    "tipo_detectado": detected_type,
+                    "confianza_tipo": real_confidence,
+                    "es_real": True
+                }
+            
             # Obtener confianza del único rostro
-            confianza = results.detections[0].score[0] if results.detections[0].score else None
-            return True, "", confianza
+            confianza_rostro = results.detections[0].score[0] if results.detections[0].score else None
+            
+            return True, "", confianza_rostro, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": True
+            }
     except Exception as e:
         logger.error(f"Error en validación de rostro: {e}")
-        return False, f"Error al procesar la imagen para detección de rostros: {str(e)}", None
+        return False, f"Error al procesar la imagen para detección de rostros: {str(e)}", None, {
+            "tipo_detectado": "error",
+            "confianza_tipo": 0.0,
+            "es_real": False
+        }
 
 # ===============================
 # LIFESPAN
@@ -394,6 +569,7 @@ async def server():
             "batch": "/predict/batch"
         },
         "model_ready": model is not None,
+        "onnx_model_ready": onnx_session is not None,
         "face_detection_ready": True,
     }
 
@@ -432,12 +608,19 @@ async def predict_single(
             IMAGE_QUALITY_CONFIG["enable_quality_checks"] = False
 
         try:
-            face_valid, face_error_msg, face_confidence = validate_face_in_image(image_bytes)
+            face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(image_bytes)
             if face_confidence is not None:
                 try:
                     logger.info(f"Confianza del rostro detectado: {face_confidence:.4f}")
                 except Exception:
                     logger.info(f"Confianza del rostro detectado: {face_confidence}")
+            
+            # Loggear información de validación ONNX
+            if validation_info:
+                logger.info(f"Validación ONNX - Tipo: {validation_info.get('tipo_detectado', 'unknown')}, "
+                          f"Confianza: {validation_info.get('confianza_tipo', 0.0):.4f}, "
+                          f"Es real: {validation_info.get('es_real', False)}")
+            
             if not face_valid:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -462,6 +645,11 @@ async def predict_single(
             confianza=round(confidence, 4),
             confianza_porcentaje=f"{confidence*100:.2f}%",
             probabilidades=probabilities,
+            validacion_imagen=validation_info or {
+                "tipo_detectado": "unknown",
+                "confianza_tipo": 0.0,
+                "es_real": False
+            },
             tiempo_procesamiento=round(processing_time, 2)
         )
     except HTTPException:
@@ -526,12 +714,19 @@ async def predict_batch(
                 image_bytes = await file.read()
 
                 # Validar rostro en la imagen
-                face_valid, face_error_msg, face_confidence = validate_face_in_image(image_bytes)
+                face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(image_bytes)
                 if face_confidence is not None:
                     try:
                         logger.info(f"Confianza del rostro detectado en '{file.filename}': {face_confidence:.4f}")
                     except Exception:
                         logger.info(f"Confianza del rostro detectado en '{file.filename}': {face_confidence}")
+                
+                # Loggear información de validación ONNX
+                if validation_info:
+                    logger.info(f"Validación ONNX para '{file.filename}' - Tipo: {validation_info.get('tipo_detectado', 'unknown')}, "
+                              f"Confianza: {validation_info.get('confianza_tipo', 0.0):.4f}, "
+                              f"Es real: {validation_info.get('es_real', False)}")
+                
                 if not face_valid:
                     predictions.append({
                         "filename": file.filename,
@@ -550,7 +745,12 @@ async def predict_batch(
                     "prediccion_label": CLASS_NAMES[predicted_class],
                     "confianza": round(confidence, 4),
                     "confianza_porcentaje": f"{confidence*100:.2f}%",
-                    "probabilidades": probabilities
+                    "probabilidades": probabilities,
+                    "validacion_imagen": validation_info or {
+                        "tipo_detectado": "unknown",
+                        "confianza_tipo": 0.0,
+                        "es_real": False
+                    }
                 })
 
                 successful += 1
