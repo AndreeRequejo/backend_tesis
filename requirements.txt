@@ -10,3 +10,4 @@ mediapipe==0.10.21
 torch
 torchvision
 Pillow
+onnxruntime
