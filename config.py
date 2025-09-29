@@ -11,6 +11,12 @@ CLASS_NAMES = [
 # Configuración del modelo
 MODEL_PATH = "acne_model.pt"
 
+# Configuración del modelo ONNX para detección de anime/3D
+ONNX_MODEL_PATH = "model.onnx"
+ANIME_CLASS_NAMES = ["anime", "real"]  # Asumiendo estas clases, ajustar según tu modelo
+REAL_CLASS_CONFIDENCE_THRESHOLD = 0.97  # 97% de confianza mínima para imágenes reales
+ONNX_IMAGE_SIZE = 384  # Tamaño de entrada para el modelo ONNX (384x384)
+
 # Configuración de imagen
 IMAGE_SIZE = (224, 224)
 MEAN = (0.5, 0.5, 0.5)
@@ -100,4 +106,6 @@ FACE_VALIDATION_MESSAGES = {
     "low_contrast": "La imagen tiene contraste muy bajo. Por favor, ingrese una imagen con mejor contraste.",
     "image_too_small": "La imagen es demasiado pequeña. Por favor, ingrese una imagen de mayor resolución.",
     "face_too_small_ratio": "El rostro ocupa muy poco espacio en la imagen. Por favor, ingrese una imagen donde el rostro sea más prominente.",
+    "anime_detected": "Se detectó una imagen de personaje animado. Por favor, utilice una imagen real de una persona.",
+    "low_real_confidence": "La confianza de que esta sea una imagen real es muy baja. Por favor, utilice una imagen clara y real de una persona.",
 }
