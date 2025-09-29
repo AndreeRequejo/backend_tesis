@@ -13,3 +13,4 @@ venv.bak/
 # Model files
 *.pt
 *.h5
+*.onnx
