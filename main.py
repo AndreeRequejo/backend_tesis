@@ -139,14 +139,11 @@ def load_model():
             output_details = onnx_session.get_outputs()[0]
             
             logger.info(f"Modelo ONNX cargado con proveedores: {onnx_session.get_providers()}")
-            logger.info(f"Entrada esperada - Nombre: {input_details.name}, Forma: {input_details.shape}, Tipo: {input_details.type}")
-            logger.info(f"Salida esperada - Nombre: {output_details.name}, Forma: {output_details.shape}, Tipo: {output_details.type}")
             
         except Exception as e:
             logger.error(f"Error al cargar modelo ONNX: {e}")
             return False
-
-        logger.info("Modelos listos")
+        
         return True
 
     except Exception as e:
@@ -195,6 +192,7 @@ def calculate_image_blur(image_array):
     """
     # Método 1: Varianza del Laplaciano (método principal)
     laplacian_var = cv2.Laplacian(image_array, cv2.CV_64F).var()
+    logger.info(f"Varianza del Laplaciano: {laplacian_var:.2f}")
     
     # Método 2: Gradiente de Sobel para validación adicional
     sobel_x = cv2.Sobel(image_array, cv2.CV_64F, 1, 0, ksize=3)
@@ -252,7 +250,6 @@ def preprocess_image_for_onnx(image_bytes: bytes) -> np.ndarray:
     # Obtener las dimensiones esperadas del modelo dinámicamente
     if onnx_session is not None:
         input_shape = onnx_session.get_inputs()[0].shape
-        logger.info(f"Forma de entrada del modelo ONNX: {input_shape}")
         
         # Extraer dimensiones (asumiendo formato NCHW: [batch, channels, height, width])
         if len(input_shape) == 4:
@@ -262,8 +259,6 @@ def preprocess_image_for_onnx(image_bytes: bytes) -> np.ndarray:
             expected_height = expected_width = ONNX_IMAGE_SIZE
     else:
         expected_height = expected_width = ONNX_IMAGE_SIZE
-    
-    logger.info(f"Redimensionando imagen a: {expected_width}x{expected_height}")
     
     # Redimensionar a tamaño esperado por el modelo ONNX
     image = image.resize((expected_width, expected_height))
@@ -275,8 +270,6 @@ def preprocess_image_for_onnx(image_bytes: bytes) -> np.ndarray:
     # Reorganizar dimensiones para ONNX: (batch_size, channels, height, width)
     image_array = np.transpose(image_array, (2, 0, 1))
     image_array = np.expand_dims(image_array, axis=0)
-    
-    logger.info(f"Forma final del array: {image_array.shape}")
     
     return image_array
 
@@ -303,8 +296,6 @@ def validate_real_image(image_bytes: bytes) -> tuple:
         input_name = onnx_session.get_inputs()[0].name
         expected_shape = onnx_session.get_inputs()[0].shape
         
-        logger.info(f"Entrada del modelo - Nombre: {input_name}, Forma esperada: {expected_shape}, Forma actual: {input_array.shape}")
-        
         # Verificar compatibilidad de formas antes de la predicción
         if input_array.shape[2] != expected_shape[2] or input_array.shape[3] != expected_shape[3]:
             logger.warning(f"Inconsistencia de dimensiones: esperado {expected_shape}, actual {input_array.shape}")
@@ -328,8 +319,6 @@ def validate_real_image(image_bytes: bytes) -> tuple:
             confidence = float(probabilities[0]) if len(probabilities) > 0 else 0.0
         
         predicted_type = ANIME_CLASS_NAMES[predicted_class]
-        
-        logger.info(f"Detección ONNX - Tipo: {predicted_type}, Confianza: {confidence:.4f}")
         
         # Si la predicción es "real", aplicar umbral estricto del 97%
         if predicted_type == "real":
@@ -576,7 +565,7 @@ async def server():
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 async def predict_single(
     file: UploadFile = File(..., description="Imagen para clasificar"),
-    skip_quality_check: bool = False
+    skip_quality_check: bool = True
 ):
     start_time = datetime.utcnow()
     try:
