@@ -40,8 +40,6 @@ def validate_real_image(image_bytes: bytes, onnx_session) -> tuple:
         input_name = onnx_session.get_inputs()[0].name
         expected_shape = onnx_session.get_inputs()[0].shape
         
-        logger.info(f"Entrada del modelo - Nombre: {input_name}, Forma esperada: {expected_shape}, Forma actual: {input_array.shape}")
-        
         # Verificar compatibilidad de formas antes de la predicción
         if input_array.shape[2] != expected_shape[2] or input_array.shape[3] != expected_shape[3]:
             logger.warning(f"Inconsistencia de dimensiones: esperado {expected_shape}, actual {input_array.shape}")
