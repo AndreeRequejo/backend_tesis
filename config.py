@@ -79,8 +79,17 @@ PORT = 8080
 MAX_BATCH_SIZE = 3
 VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
 
+# Configuración del detector de rostros
+FACE_DETECTOR_CONFIG = {
+    "use_mtcnn": True,  # True para MTCNN, False para MediaPipe
+    "mediapipe_confidence": 0.8,  # Confianza mínima para MediaPipe
+    "mtcnn_confidence": 0.8,  # Confianza mínima para MTCNN
+}
+
 # Configuración MTCNN para validación de rostros
 MTCNN_CONFIG = {
+    "image_size": 160,  # Tamaño estándar para MTCNN  
+    "margin": 0,  # Margen alrededor del rostro
     "min_face_size": 20,  # Tamaño mínimo de rostro en píxeles
     "thresholds": [0.6, 0.7, 0.7],  # Umbrales para las 3 redes de MTCNN
     "factor": 0.709,  # Factor de escalado para pirámide de imágenes
