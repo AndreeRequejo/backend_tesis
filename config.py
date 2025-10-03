@@ -69,7 +69,7 @@ PORT = 8080
 
 # Límites
 MAX_BATCH_SIZE = 3
-VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg"]
+VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
 
 # Configuración MTCNN para validación de rostros
 MTCNN_CONFIG = {
