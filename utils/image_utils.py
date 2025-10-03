@@ -106,7 +106,6 @@ def preprocess_image_for_onnx(image_bytes: bytes, onnx_session) -> np.ndarray:
     # Obtener las dimensiones esperadas del modelo dinámicamente
     if onnx_session is not None:
         input_shape = onnx_session.get_inputs()[0].shape
-        logger.info(f"Forma de entrada del modelo ONNX: {input_shape}")
         
         # Extraer dimensiones (asumiendo formato NCHW: [batch, channels, height, width])
         if len(input_shape) == 4:
@@ -116,8 +115,6 @@ def preprocess_image_for_onnx(image_bytes: bytes, onnx_session) -> np.ndarray:
             expected_height = expected_width = ONNX_IMAGE_SIZE
     else:
         expected_height = expected_width = ONNX_IMAGE_SIZE
-    
-    logger.info(f"Redimensionando imagen a: {expected_width}x{expected_height}")
     
     # Redimensionar a tamaño esperado por el modelo ONNX
     image = image.resize((expected_width, expected_height))
@@ -129,7 +126,5 @@ def preprocess_image_for_onnx(image_bytes: bytes, onnx_session) -> np.ndarray:
     # Reorganizar dimensiones para ONNX: (batch_size, channels, height, width)
     image_array = np.transpose(image_array, (2, 0, 1))
     image_array = np.expand_dims(image_array, axis=0)
-    
-    logger.info(f"Forma final del array: {image_array.shape}")
     
     return image_array
