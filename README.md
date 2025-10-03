@@ -9,7 +9,7 @@ Esta API permite clasificar la **severidad del acné** en imágenes faciales med
   * **0**: Acné Leve
   * **1**: Acné Moderado
   * **2**: Acné Severo
-  * **3**: Acné Muy Severo
+  
 * Predicción **individual** de imágenes.
 * Predicción **en lote** (hasta 3 imágenes a la vez).
 * Soporte para imágenes en formatos: **JPG, JPEG, PNG**.
