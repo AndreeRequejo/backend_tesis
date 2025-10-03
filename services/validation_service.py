@@ -249,9 +249,7 @@ def validate_face_with_mtcnn(image_bytes: bytes, mtcnn_detector) -> tuple:
             }
         
         # Log de información de calidad
-        logger.info(f"MTCNN: Rostro válido detectado - Confianza: {best_confidence:.3f}, "
-                   f"Tamaño: {face_width:.0f}x{face_height:.0f}, "
-                   f"Área ratio: {face_area_ratio:.3f}")
+        logger.info(f"MTCNN: Rostro válido detectado - Confianza: {best_confidence:.3f}")
         
         return True, "", best_confidence, {
             "detector": "mtcnn",
@@ -328,7 +326,6 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
                     "es_real": False,
                     "detector_info": detector_info
                 }
-            logger.info(f"MTCNN: Rostro válido detectado - Continuando al ONNX")
             
         else:
             # Usar MediaPipe para detección de rostros (comportamiento original)
@@ -378,8 +375,6 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
                 "es_real": False,
                 "detector_info": detector_info
             }
-        
-        logger.info(f"ONNX: Imagen real validada - Confianza: {real_confidence:.4f} - Continuando a validaciones de calidad")
 
         # PASO 3: VALIDACIONES DE CALIDAD - FILTRO DE CALIDAD (Solo si es imagen real con 1 rostro)
         quality_valid, quality_error = validate_image_quality(image_bytes)

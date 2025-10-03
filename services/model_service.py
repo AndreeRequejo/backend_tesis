@@ -62,17 +62,14 @@ class ModelService:
                         # Probar si CUDA realmente funciona
                         test_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
                         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-                        logger.info("ONNX: CUDAExecutionProvider disponible y funcional")
                         test_session = None  # Liberar memoria
                     except Exception as cuda_error:
                         logger.warning(f"ONNX: CUDA no funcional, usando CPU. Error: {cuda_error}")
                         providers = ['CPUExecutionProvider']
-                else:
-                    logger.info("ONNX: CUDAExecutionProvider no disponible, usando CPU")
                 
                 # Crear la sesión final con los proveedores seleccionados
                 self.onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)
-                logger.info(f"ONNX: Modelo cargado con proveedores: {providers}")
+                logger.info(f"ONNX: Modelo cargado - {providers}")
                 
             except Exception as e:
                 logger.error(f"Error al cargar modelo ONNX: {e}")
@@ -97,7 +94,7 @@ class ModelService:
                     logger.error(f"Error al inicializar MTCNN: {e}")
                     return False
             elif FACE_DETECTOR_CONFIG["use_mtcnn"] and not MTCNN_AVAILABLE:
-                logger.warning("MTCNN está configurado para usar, pero facenet_pytorch no está disponible")
+                logger.warning("facenet_pytorch no está disponible")
             else:
                 logger.info("Usando MediaPipe para detección de rostros")
             
