@@ -93,6 +93,8 @@ async def scalar_docs():
 @app.get("/status", tags=["General"])
 async def server():
     """Información de la API"""
+    detector_info = model_service.get_detector_info()
+    
     return {
         "message": "Documentación Tesis Acne",
         "version": API_VERSION,
@@ -100,6 +102,16 @@ async def server():
             "docs": "/docs",
             "predict": "/predict",
             "batch": "/predict/batch"
+        },
+        "models_status": {
+            "acne_model": model_service.is_model_ready(),
+            "onnx_model": model_service.is_onnx_ready(),
+            "face_detector": detector_info
+        },
+        "face_detection": {
+            "current_detector": detector_info["detector"],
+            "mtcnn_available": detector_info.get("available", False) if detector_info["detector"] == "mtcnn" else False,
+            "change_instructions": "Modifica FACE_DETECTOR_CONFIG['use_mtcnn'] en config.py para cambiar entre MediaPipe y MTCNN"
         }
     }
 
@@ -144,7 +156,9 @@ async def predict_single(
 
         try:
             face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
-                image_bytes, model_service.get_onnx_session()
+                image_bytes, 
+                model_service.get_onnx_session(),
+                model_service.get_mtcnn()  # Pasar el detector MTCNN
             )
             if face_confidence is not None:
                 try:
@@ -250,9 +264,11 @@ async def predict_batch(
 
                 image_bytes = await file.read()
 
-                # FLUJO DE VALIDACIÓN: MediaPipe → ONNX → Calidad → Modelo Principal
+                # FLUJO DE VALIDACIÓN: MediaPipe/MTCNN → ONNX → Calidad → Modelo Principal
                 face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
-                    image_bytes, model_service.get_onnx_session()
+                    image_bytes, 
+                    model_service.get_onnx_session(),
+                    model_service.get_mtcnn()  # Pasar el detector MTCNN
                 )
                 if face_confidence is not None:
                     try:
