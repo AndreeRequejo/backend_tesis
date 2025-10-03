@@ -8,6 +8,14 @@ import logging
 from model import MyNet
 from config import *
 
+# Importación condicional de MTCNN
+try:
+    from facenet_pytorch import MTCNN
+    MTCNN_AVAILABLE = True
+except ImportError:
+    MTCNN_AVAILABLE = False
+    print("Warning: facenet_pytorch no está disponible. Solo se podrá usar MediaPipe para detección de rostros.")
+
 logger = logging.getLogger(__name__)
 
 class ModelService:
@@ -15,6 +23,7 @@ class ModelService:
         self.model = None
         self.device = None
         self.onnx_session = None
+        self.mtcnn = None
 
     def load_models(self):
         """Cargar modelo entrenado y modelo ONNX"""
@@ -45,18 +54,52 @@ class ModelService:
                 # Verificar proveedores disponibles y usar GPU si está disponible
                 available_providers = ort.get_available_providers()
                 
-                if 'CUDAExecutionProvider' in available_providers:
-                    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-                    logger.info("ONNX CUDAExecutionProvider")
-                else:
-                    providers = ['CPUExecutionProvider']
-                    logger.info("ONNX CPUExecutionProvider")
+                # Intentar primero con CUDA, pero usar CPU como fallback
+                providers = ['CPUExecutionProvider']  # Usar CPU por defecto
                 
-                self.onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)    
+                if 'CUDAExecutionProvider' in available_providers:
+                    try:
+                        # Probar si CUDA realmente funciona
+                        test_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+                        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                        logger.info("ONNX: CUDAExecutionProvider disponible y funcional")
+                        test_session = None  # Liberar memoria
+                    except Exception as cuda_error:
+                        logger.warning(f"ONNX: CUDA no funcional, usando CPU. Error: {cuda_error}")
+                        providers = ['CPUExecutionProvider']
+                else:
+                    logger.info("ONNX: CUDAExecutionProvider no disponible, usando CPU")
+                
+                # Crear la sesión final con los proveedores seleccionados
+                self.onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)
+                logger.info(f"ONNX: Modelo cargado con proveedores: {providers}")
                 
             except Exception as e:
                 logger.error(f"Error al cargar modelo ONNX: {e}")
                 return False
+
+            # Inicializar MTCNN si está configurado y disponible
+            if FACE_DETECTOR_CONFIG["use_mtcnn"] and MTCNN_AVAILABLE:
+                try:
+                    self.mtcnn = MTCNN(
+                        image_size=MTCNN_CONFIG["image_size"],
+                        margin=MTCNN_CONFIG["margin"],
+                        min_face_size=MTCNN_CONFIG["min_face_size"],
+                        thresholds=MTCNN_CONFIG["thresholds"],
+                        factor=MTCNN_CONFIG["factor"],
+                        post_process=MTCNN_CONFIG["post_process"],
+                        device=self.device,
+                        keep_all=MTCNN_CONFIG["keep_all"],
+                        select_largest=MTCNN_CONFIG["select_largest"]
+                    )
+                    logger.info("MTCNN inicializado correctamente")
+                except Exception as e:
+                    logger.error(f"Error al inicializar MTCNN: {e}")
+                    return False
+            elif FACE_DETECTOR_CONFIG["use_mtcnn"] and not MTCNN_AVAILABLE:
+                logger.warning("MTCNN está configurado para usar, pero facenet_pytorch no está disponible")
+            else:
+                logger.info("Usando MediaPipe para detección de rostros")
             
             return True
 
@@ -92,6 +135,31 @@ class ModelService:
     def get_onnx_session(self):
         """Obtener sesión ONNX"""
         return self.onnx_session
+
+    def is_mtcnn_ready(self):
+        """Verificar si MTCNN está listo"""
+        return self.mtcnn is not None
+
+    def get_mtcnn(self):
+        """Obtener detector MTCNN"""
+        return self.mtcnn
+
+    def get_detector_info(self):
+        """Obtener información sobre el detector configurado"""
+        if FACE_DETECTOR_CONFIG["use_mtcnn"]:
+            return {
+                "detector": "mtcnn",
+                "available": MTCNN_AVAILABLE,
+                "ready": self.is_mtcnn_ready(),
+                "config": MTCNN_CONFIG
+            }
+        else:
+            return {
+                "detector": "mediapipe",
+                "available": True,  # MediaPipe siempre está disponible
+                "ready": True,  # No requiere inicialización especial
+                "config": {"confidence": FACE_DETECTOR_CONFIG["mediapipe_confidence"]}
+            }
 
 
 # Instancia global del servicio
