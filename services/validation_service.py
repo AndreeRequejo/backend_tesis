@@ -154,6 +154,16 @@ def validate_image_quality(image_bytes: bytes) -> tuple:
 def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
     """
     Validar que la imagen contenga exactamente un rostro y sea una imagen real
+    
+    FLUJO:
+    1. MediaPipe (FILTRO INICIAL) - Detectar presencia y cantidad de rostros
+       → Si NO hay rostros o hay MÚLTIPLES rostros → RECHAZAR inmediatamente
+    2. ONNX Model (FILTRO DE AUTENTICIDAD) - Solo si hay exactamente 1 rostro
+       → Si es ANIMADO/3D → RECHAZAR
+    3. Validaciones de Calidad (FILTRO DE CALIDAD) - Solo si es imagen real
+       → Si calidad muy baja → RECHAZAR  
+    4. Continuar al modelo principal de clasificación de acné
+    
     Args:
         image_bytes: Bytes de la imagen
         onnx_session: Sesión ONNX para validación
@@ -161,69 +171,84 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
         tuple: (es_válida, mensaje_error, confianza_rostro, info_validacion)
     """
     try:
-        # 1. Validar que sea una imagen real usando modelo ONNX
-        is_real, real_confidence, detected_type, real_error = validate_real_image(image_bytes, onnx_session)
-        if not is_real:
-            return False, real_error, None, {
-                "tipo_detectado": detected_type,
-                "confianza_tipo": real_confidence,
-                "es_real": False
-            }
-
-        # 2. Validar calidad general de la imagen
-        quality_valid, quality_error = validate_image_quality(image_bytes)
-        if not quality_valid:
-            return False, quality_error, None, {
-                "tipo_detectado": detected_type,
-                "confianza_tipo": real_confidence,
-                "es_real": True
-            }
-
-        # 3. Convertir los bytes a imagen RGB
+        # PASO 1: MEDIAPIPE - FILTRO INICIAL (MÁS RÁPIDO Y LIGERO)
+        # Convertir los bytes a imagen RGB
         try:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         except Exception as e:
             logger.error(f"No se pudo abrir la imagen: {e}")
             return False, "No se pudo abrir la imagen. Asegúrate de que el archivo es una imagen válida.", None, {
-                "tipo_detectado": detected_type,
-                "confianza_tipo": real_confidence,
-                "es_real": True
+                "tipo_detectado": "error",
+                "confianza_tipo": 0.0,
+                "es_real": False
             }
 
         image_np = np.array(image)
         if image_np.ndim != 3 or image_np.shape[2] != 3:
             logger.error("La imagen no tiene 3 canales RGB")
             return False, "La imagen debe tener 3 canales (RGB).", None, {
-                "tipo_detectado": detected_type,
-                "confianza_tipo": real_confidence,
-                "es_real": True
+                "tipo_detectado": "error",
+                "confianza_tipo": 0.0,
+                "es_real": False
             }
 
-        # 4. Usar mediapipe para detección de rostros
+        # Usar mediapipe para detección de rostros (PRIMERA VALIDACIÓN)
         mp_face_detection = mp.solutions.face_detection
         with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.8) as face_detection:
             results = face_detection.process(image_np)
+            
+            # FILTRO: No hay rostros detectados
             if not results.detections or len(results.detections) == 0:
+                logger.info("MediaPipe: No se detectaron rostros - Rechazando sin procesar ONNX")
                 return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
-                    "tipo_detectado": detected_type,
-                    "confianza_tipo": real_confidence,
-                    "es_real": True
+                    "tipo_detectado": "no_face",
+                    "confianza_tipo": 0.0,
+                    "es_real": False
                 }
+            
+            # FILTRO: Múltiples rostros detectados
             if len(results.detections) > 1:
+                logger.info(f"MediaPipe: Se detectaron {len(results.detections)} rostros - Rechazando sin procesar ONNX")
                 return False, FACE_VALIDATION_MESSAGES["multiple_faces"], None, {
-                    "tipo_detectado": detected_type,
-                    "confianza_tipo": real_confidence,
-                    "es_real": True
+                    "tipo_detectado": "multiple_faces",
+                    "confianza_tipo": 0.0,
+                    "es_real": False
                 }
             
-            # Obtener confianza del único rostro
+            # Obtener confianza del único rostro detectado
             confianza_rostro = results.detections[0].score[0] if results.detections[0].score else None
-            
-            return True, "", confianza_rostro, {
+            logger.info(f"MediaPipe: 1 rostro detectado con confianza {confianza_rostro:.4f} - Continuando al ONNX")
+
+        # PASO 2: ONNX MODEL - FILTRO DE AUTENTICIDAD (Solo si hay exactamente 1 rostro)
+        is_real, real_confidence, detected_type, real_error = validate_real_image(image_bytes, onnx_session)
+        if not is_real:
+            logger.info(f"ONNX: Imagen rechazada - Tipo: {detected_type}, Confianza: {real_confidence:.4f}")
+            return False, real_error, confianza_rostro, {
+                "tipo_detectado": detected_type,
+                "confianza_tipo": real_confidence,
+                "es_real": False
+            }
+        
+        logger.info(f"ONNX: Imagen real validada - Confianza: {real_confidence:.4f} - Continuando a validaciones de calidad")
+
+        # PASO 3: VALIDACIONES DE CALIDAD - FILTRO DE CALIDAD (Solo si es imagen real con 1 rostro)
+        quality_valid, quality_error = validate_image_quality(image_bytes)
+        if not quality_valid:
+            logger.info(f"Calidad: Imagen rechazada - {quality_error}")
+            return False, quality_error, confianza_rostro, {
                 "tipo_detectado": detected_type,
                 "confianza_tipo": real_confidence,
                 "es_real": True
             }
+        
+        logger.info("Calidad: Imagen aprobada - Todos los filtros pasados exitosamente")
+        
+        # TODOS LOS FILTROS PASADOS - IMAGEN VÁLIDA PARA CLASIFICACIÓN
+        return True, "", confianza_rostro, {
+            "tipo_detectado": detected_type,
+            "confianza_tipo": real_confidence,
+            "es_real": True
+        }
     except Exception as e:
         logger.error(f"Error en validación de rostro: {e}")
         return False, f"Error al procesar la imagen para detección de rostros: {str(e)}", None, {

@@ -1,7 +1,9 @@
 import os
 # Configurar TensorFlow para reducir mensajes informativos
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Cambiar a 2 para suprimir warnings
+os.environ['TF_LITE_DISABLE_FEEDBACK_TENSOR'] = '1'  # Suprimir mensajes de feedback tensor
+os.environ['GLOG_minloglevel'] = '2'  # Suprimir logs de Google (MediaPipe)
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -129,7 +131,12 @@ async def predict_single(
                 detail="Archivo vacío"
             )
 
-        # Validar que la imagen contenga un rostro
+        # FLUJO DE VALIDACIÓN:
+        # 1. MediaPipe: Detectar presencia y cantidad de rostros (filtro rápido inicial)
+        # 2. ONNX Model: Validar si es imagen real vs animada (solo si hay 1 rostro)  
+        # 3. Validaciones de calidad: Blur, contraste, brillo (solo si es imagen real)
+        # 4. Proceder al modelo principal de clasificación de acné
+        
         # Si skip_quality_check es True, temporalmente deshabilitar validaciones de calidad
         original_quality_setting = IMAGE_QUALITY_CONFIG.get("enable_quality_checks", True)
         if skip_quality_check:
@@ -243,7 +250,7 @@ async def predict_batch(
 
                 image_bytes = await file.read()
 
-                # Validar rostro en la imagen
+                # FLUJO DE VALIDACIÓN: MediaPipe → ONNX → Calidad → Modelo Principal
                 face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
                     image_bytes, model_service.get_onnx_session()
                 )

@@ -34,18 +34,26 @@ Esta API utiliza deep learning para clasificar la severidad del acné en imágen
 * **Predicción Individual**: `/predict`
 * **Predicción en Lote**: `/predict/batch`
 
-## Validación de Rostros y Calidad
-Todas las imágenes son validadas usando MediaPipe y métricas de calidad balanceadas para garantizar que:
-- Contengan al menos un rostro visible con buena confianza (≥80%)
-- El rostro sea de tamaño suficiente (≥40x40 píxeles)
-- La imagen tenga calidad aceptable (solo rechaza imágenes extremadamente borrosas)
-- El rostro ocupe una proporción razonable de la imagen
-- La resolución de imagen sea adecuada (≥80x80 píxeles)
+## Flujo de Validación:
+Las imágenes pasan por un flujo de filtros secuencial antes de la clasificación final:
 
-## Validación Inteligente
-- **Modo Balanceado**: Validaciones menos invasivas por defecto
-- **Detección de Bordes**: Validación secundaria para imágenes con desenfoque moderado
-- **Parámetro Opcional**: `skip_quality_check` para omitir validaciones de calidad
+**1. MediaPipe (Filtro Inicial)**
+- Detecta presencia de rostros (≥80% confianza)  
+- Si NO hay rostros → RECHAZA inmediatamente
+- Si hay MÚLTIPLES rostros → RECHAZA inmediatamente
+- Si hay EXACTAMENTE 1 rostro → Continúa al siguiente filtro
+
+**2. ONNX Model (Filtro de Autenticidad)**
+- Solo procesa si hay exactamente 1 rostro detectado
+- Valida que sea imagen REAL vs ANIMADA/3D (≥97% confianza para imágenes reales)
+- Si detecta ANIMADO → RECHAZA
+- Si detecta REAL → Continúa al siguiente filtro
+
+**3. Validaciones de Calidad (Filtro Final)**
+- Solo procesa si es imagen real con 1 rostro
+- Verifica blur, contraste, brillo y dimensiones mínimas
+- Solo rechaza imágenes de calidad extremadamente baja
+- Si pasa → APRUEBA para clasificación de acné
 
 ## Clases
 - **0: Acné leve
@@ -53,9 +61,9 @@ Todas las imágenes son validadas usando MediaPipe y métricas de calidad balanc
 - **2: Acné severo
 
 ## Formatos Soportados
-JPG, PNG, JPEG
+JPG, PNG, JPEG, WEBP
 
-## Requisitos de Imagen (Relajados)
+## Requisitos de Imagen
 - Debe contener al menos un rostro visible
 - Rostro de tamaño mínimo 40x40 píxeles
 - Resolución mínima 80x80 píxeles
