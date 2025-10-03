@@ -15,6 +15,14 @@ from utils.image_utils import (
 )
 from config import *
 
+# Importación condicional de MTCNN
+try:
+    from facenet_pytorch import MTCNN
+    MTCNN_AVAILABLE = True
+except ImportError:
+    MTCNN_AVAILABLE = False
+    print("Warning: facenet_pytorch no está disponible. Solo se podrá usar MediaPipe para detección de rostros.")
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,12 +159,123 @@ def validate_image_quality(image_bytes: bytes) -> tuple:
         return False, f"Error al evaluar la calidad de la imagen: {str(e)}"
 
 
-def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
+def validate_face_with_mtcnn(image_bytes: bytes, mtcnn_detector) -> tuple:
+    """
+    Validar rostros usando MTCNN de facenet_pytorch
+    
+    Args:
+        image_bytes: Bytes de la imagen
+        mtcnn_detector: Instancia de MTCNN inicializada
+        
+    Returns:
+        tuple: (es_válida, mensaje_error, confianza_rostro, info_extra)
+    """
+    if not MTCNN_AVAILABLE:
+        return False, "MTCNN no está disponible", None, {"detector": "unavailable"}
+    
+    if mtcnn_detector is None:
+        return False, "Detector MTCNN no inicializado", None, {"detector": "not_initialized"}
+    
+    try:
+        # Abrir imagen
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Detectar rostros con MTCNN
+        boxes, probs = mtcnn_detector.detect(image)
+        
+        # Si no se detectaron rostros
+        if boxes is None or len(boxes) == 0:
+            logger.info("MTCNN: No se detectaron rostros")
+            return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
+                "detector": "mtcnn",
+                "faces_detected": 0,
+                "confidence": 0.0
+            }
+        
+        # Verificar confianza mínima
+        valid_faces = [prob for prob in probs if prob >= FACE_DETECTOR_CONFIG["mtcnn_confidence"]]
+        if len(valid_faces) == 0:
+            logger.info(f"MTCNN: Rostros detectados con confianza baja (max: {max(probs):.3f}, requerido: {FACE_DETECTOR_CONFIG['mtcnn_confidence']})")
+            return False, FACE_VALIDATION_MESSAGES["low_confidence"], max(probs), {
+                "detector": "mtcnn",
+                "faces_detected": len(boxes),
+                "confidence": max(probs),
+                "threshold": FACE_DETECTOR_CONFIG["mtcnn_confidence"]
+            }
+        
+        # Verificar múltiples rostros (más estricto que MediaPipe)
+        if len(boxes) > 1:
+            logger.info(f"MTCNN: Se detectaron {len(boxes)} rostros - Rechazando por múltiples rostros")
+            return False, FACE_VALIDATION_MESSAGES["multiple_faces"], max(probs), {
+                "detector": "mtcnn",
+                "faces_detected": len(boxes),
+                "confidence": max(probs)
+            }
+        
+        # Obtener información del rostro detectado
+        best_face_idx = np.argmax(probs)
+        largest_box = boxes[best_face_idx]
+        best_confidence = probs[best_face_idx]
+        
+        # Verificar tamaño del rostro (MTCNN es más preciso en esto)
+        face_width = largest_box[2] - largest_box[0]
+        face_height = largest_box[3] - largest_box[1]
+        
+        # Verificar tamaño mínimo del rostro
+        if face_width < IMAGE_QUALITY_CONFIG["min_face_size"] or face_height < IMAGE_QUALITY_CONFIG["min_face_size"]:
+            logger.info(f"MTCNN: Rostro demasiado pequeño ({face_width:.0f}x{face_height:.0f} < {IMAGE_QUALITY_CONFIG['min_face_size']})")
+            return False, FACE_VALIDATION_MESSAGES["face_too_small"], best_confidence, {
+                "detector": "mtcnn",
+                "faces_detected": 1,
+                "confidence": best_confidence,
+                "face_size": f"{face_width:.0f}x{face_height:.0f}"
+            }
+        
+        # Verificar ratio del área del rostro respecto a la imagen
+        image_width, image_height = image.size
+        face_area = face_width * face_height
+        image_area = image_width * image_height
+        face_area_ratio = face_area / image_area
+        
+        if face_area_ratio < IMAGE_QUALITY_CONFIG["min_face_area_ratio"]:
+            logger.info(f"MTCNN: Área del rostro muy pequeña ({face_area_ratio:.3f} < {IMAGE_QUALITY_CONFIG['min_face_area_ratio']})")
+            return False, FACE_VALIDATION_MESSAGES["face_too_small_ratio"], best_confidence, {
+                "detector": "mtcnn",
+                "faces_detected": 1,
+                "confidence": best_confidence,
+                "face_area_ratio": face_area_ratio
+            }
+        
+        # Log de información de calidad
+        logger.info(f"MTCNN: Rostro válido detectado - Confianza: {best_confidence:.3f}, "
+                   f"Tamaño: {face_width:.0f}x{face_height:.0f}, "
+                   f"Área ratio: {face_area_ratio:.3f}")
+        
+        return True, "", best_confidence, {
+            "detector": "mtcnn",
+            "faces_detected": 1,
+            "confidence": best_confidence,
+            "face_size": f"{face_width:.0f}x{face_height:.0f}",
+            "face_area_ratio": face_area_ratio,
+            "box": largest_box.tolist()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error en validación MTCNN: {e}")
+        return False, f"Error al procesar la imagen con MTCNN: {str(e)}", None, {
+            "detector": "mtcnn",
+            "error": str(e)
+        }
+
+
+def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None) -> tuple:
     """
     Validar que la imagen contenga exactamente un rostro y sea una imagen real
     
     FLUJO:
-    1. MediaPipe (FILTRO INICIAL) - Detectar presencia y cantidad de rostros
+    1. DETECTOR DE ROSTROS (FILTRO INICIAL) - Puede ser MediaPipe o MTCNN según configuración
        → Si NO hay rostros o hay MÚLTIPLES rostros → RECHAZAR inmediatamente
     2. ONNX Model (FILTRO DE AUTENTICIDAD) - Solo si hay exactamente 1 rostro
        → Si es ANIMADO/3D → RECHAZAR
@@ -167,6 +286,7 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
     Args:
         image_bytes: Bytes de la imagen
         onnx_session: Sesión ONNX para validación
+        mtcnn_detector: Instancia opcional de MTCNN (si se usa MTCNN)
     Returns:
         tuple: (es_válida, mensaje_error, confianza_rostro, info_validacion)
     """
@@ -192,32 +312,61 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
                 "es_real": False
             }
 
-        # Usar mediapipe para detección de rostros (PRIMERA VALIDACIÓN)
-        mp_face_detection = mp.solutions.face_detection
-        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.8) as face_detection:
-            results = face_detection.process(image_np)
-            
-            # FILTRO: No hay rostros detectados
-            if not results.detections or len(results.detections) == 0:
-                logger.info("MediaPipe: No se detectaron rostros - Rechazando sin procesar ONNX")
-                return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
-                    "tipo_detectado": "no_face",
+        # PASO 1: DETECTOR DE ROSTROS (FILTRO INICIAL)
+        # Elegir entre MediaPipe o MTCNN según configuración
+        confianza_rostro = None
+        detector_info = {}
+        
+        if FACE_DETECTOR_CONFIG["use_mtcnn"] and mtcnn_detector is not None:
+            # Usar MTCNN para detección de rostros
+            face_valid, face_error, confianza_rostro, detector_info = validate_face_with_mtcnn(image_bytes, mtcnn_detector)
+            if not face_valid:
+                logger.info(f"MTCNN: {face_error}")
+                return False, face_error, confianza_rostro, {
+                    "tipo_detectado": "face_validation_failed",
                     "confianza_tipo": 0.0,
-                    "es_real": False
+                    "es_real": False,
+                    "detector_info": detector_info
                 }
+            logger.info(f"MTCNN: Rostro válido detectado - Continuando al ONNX")
             
-            # FILTRO: Múltiples rostros detectados
-            if len(results.detections) > 1:
-                logger.info(f"MediaPipe: Se detectaron {len(results.detections)} rostros - Rechazando sin procesar ONNX")
-                return False, FACE_VALIDATION_MESSAGES["multiple_faces"], None, {
-                    "tipo_detectado": "multiple_faces",
-                    "confianza_tipo": 0.0,
-                    "es_real": False
+        else:
+            # Usar MediaPipe para detección de rostros (comportamiento original)
+            mp_face_detection = mp.solutions.face_detection
+            with mp_face_detection.FaceDetection(
+                model_selection=1, 
+                min_detection_confidence=FACE_DETECTOR_CONFIG["mediapipe_confidence"]
+            ) as face_detection:
+                results = face_detection.process(image_np)
+                
+                # FILTRO: No hay rostros detectados
+                if not results.detections or len(results.detections) == 0:
+                    logger.info("MediaPipe: No se detectaron rostros - Rechazando sin procesar ONNX")
+                    return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
+                        "tipo_detectado": "no_face",
+                        "confianza_tipo": 0.0,
+                        "es_real": False,
+                        "detector_info": {"detector": "mediapipe", "faces_detected": 0}
+                    }
+                
+                # FILTRO: Múltiples rostros detectados
+                if len(results.detections) > 1:
+                    logger.info(f"MediaPipe: Se detectaron {len(results.detections)} rostros - Rechazando sin procesar ONNX")
+                    return False, FACE_VALIDATION_MESSAGES["multiple_faces"], None, {
+                        "tipo_detectado": "multiple_faces",
+                        "confianza_tipo": 0.0,
+                        "es_real": False,
+                        "detector_info": {"detector": "mediapipe", "faces_detected": len(results.detections)}
+                    }
+                
+                # Obtener confianza del único rostro detectado
+                confianza_rostro = results.detections[0].score[0] if results.detections[0].score else None
+                detector_info = {
+                    "detector": "mediapipe", 
+                    "faces_detected": 1, 
+                    "confidence": float(confianza_rostro) if confianza_rostro else 0.0
                 }
-            
-            # Obtener confianza del único rostro detectado
-            confianza_rostro = results.detections[0].score[0] if results.detections[0].score else None
-            logger.info(f"MediaPipe: 1 rostro detectado con confianza {confianza_rostro:.4f} - Continuando al ONNX")
+                logger.info(f"MediaPipe: 1 rostro detectado con confianza {confianza_rostro:.4f} - Continuando al ONNX")
 
         # PASO 2: ONNX MODEL - FILTRO DE AUTENTICIDAD (Solo si hay exactamente 1 rostro)
         is_real, real_confidence, detected_type, real_error = validate_real_image(image_bytes, onnx_session)
@@ -226,7 +375,8 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
             return False, real_error, confianza_rostro, {
                 "tipo_detectado": detected_type,
                 "confianza_tipo": real_confidence,
-                "es_real": False
+                "es_real": False,
+                "detector_info": detector_info
             }
         
         logger.info(f"ONNX: Imagen real validada - Confianza: {real_confidence:.4f} - Continuando a validaciones de calidad")
@@ -238,7 +388,8 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
             return False, quality_error, confianza_rostro, {
                 "tipo_detectado": detected_type,
                 "confianza_tipo": real_confidence,
-                "es_real": True
+                "es_real": True,
+                "detector_info": detector_info
             }
         
         logger.info("Calidad: Imagen aprobada - Todos los filtros pasados exitosamente")
@@ -247,12 +398,14 @@ def validate_face_in_image(image_bytes: bytes, onnx_session) -> tuple:
         return True, "", confianza_rostro, {
             "tipo_detectado": detected_type,
             "confianza_tipo": real_confidence,
-            "es_real": True
+            "es_real": True,
+            "detector_info": detector_info
         }
     except Exception as e:
         logger.error(f"Error en validación de rostro: {e}")
         return False, f"Error al procesar la imagen para detección de rostros: {str(e)}", None, {
             "tipo_detectado": "error",
             "confianza_tipo": 0.0,
-            "es_real": False
+            "es_real": False,
+            "detector_info": {"detector": "error", "error": str(e)}
         }
