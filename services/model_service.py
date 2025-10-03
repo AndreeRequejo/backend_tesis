@@ -42,15 +42,17 @@ class ModelService:
 
             # Cargar modelo ONNX para detección de anime/3D
             try:
-                # Configurar proveedores ONNX (GPU si está disponible, sino CPU)
-                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
-                self.onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)
+                # Verificar proveedores disponibles y usar GPU si está disponible
+                available_providers = ort.get_available_providers()
                 
-                # Inspeccionar las dimensiones esperadas del modelo
-                input_details = self.onnx_session.get_inputs()[0]
-                output_details = self.onnx_session.get_outputs()[0]
+                if 'CUDAExecutionProvider' in available_providers:
+                    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                    logger.info("ONNX CUDAExecutionProvider")
+                else:
+                    providers = ['CPUExecutionProvider']
+                    logger.info("ONNX CPUExecutionProvider")
                 
-                logger.info(f"Modelo ONNX cargado con proveedores: {self.onnx_session.get_providers()}")
+                self.onnx_session = ort.InferenceSession(ONNX_MODEL_PATH, providers=providers)    
                 
             except Exception as e:
                 logger.error(f"Error al cargar modelo ONNX: {e}")
