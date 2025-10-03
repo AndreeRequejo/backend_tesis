@@ -9,5 +9,6 @@ tensorflow==2.15.0
 mediapipe==0.10.21
 torch
 torchvision
+facenet-pytorch
 Pillow
-onnxruntime-gpu
+onnxruntime
