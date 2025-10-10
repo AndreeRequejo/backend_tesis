@@ -160,17 +160,6 @@ async def predict_single(
                 model_service.get_onnx_session(),
                 model_service.get_mtcnn()  # Pasar el detector MTCNN
             )
-            if face_confidence is not None:
-                try:
-                    logger.info(f"Confianza del rostro detectado: {face_confidence:.4f}")
-                except Exception:
-                    logger.info(f"Confianza del rostro detectado: {face_confidence}")
-            
-            # Loggear información de validación ONNX
-            if validation_info:
-                logger.info(f"Validación ONNX - Tipo: {validation_info.get('tipo_detectado', 'unknown')}, "
-                          f"Confianza: {validation_info.get('confianza_tipo', 0.0):.4f}, "
-                          f"Es real: {validation_info.get('es_real', False)}")
             
             if not face_valid:
                 raise HTTPException(

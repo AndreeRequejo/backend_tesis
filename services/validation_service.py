@@ -338,7 +338,7 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
                 
                 # FILTRO: No hay rostros detectados
                 if not results.detections or len(results.detections) == 0:
-                    logger.info("MediaPipe: No se detectaron rostros - Rechazando sin procesar ONNX")
+                    logger.info("MediaPipe: No se detectaron rostros")
                     return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
                         "tipo_detectado": "no_face",
                         "confianza_tipo": 0.0,
