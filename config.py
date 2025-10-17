@@ -116,9 +116,9 @@ IMAGE_QUALITY_CONFIG = {
 FACE_VALIDATION_MESSAGES = {
     "no_face": "No se detectó ningún rostro en la imagen. Por favor, ingrese una imagen que contenga al menos un rostro visible.",
     "face_too_small": "El rostro detectado es demasiado pequeño. Por favor, ingrese una imagen con un rostro más grande y visible.",
-    "multiple_faces": "Se detectaron múltiples rostros. Por favor, utilice una imagen con un solo rostro.",
+    "multiple_faces": "No se detectó un rostro único. Por favor, ingrese una imagen que contenga solo un rostro visible.",
     "low_confidence": "La calidad de detección del rostro es baja. Por favor, ingrese una imagen más clara y bien iluminada.",
-    "blurry_image": "La imagen está demasiado borrosa. Por favor, ingrese una imagen más nítida y enfocada.",
+    "blurry_image": "No se pudo detectar un rostro claramente. Por favor, ingrese otra imagen.",
     "poor_lighting": "La iluminación de la imagen es inadecuada (muy oscura o muy brillante). Por favor, ingrese una imagen con mejor iluminación.",
     "low_contrast": "La imagen tiene contraste muy bajo. Por favor, ingrese una imagen con mejor contraste.",
     "image_too_small": "La imagen es demasiado pequeña. Por favor, ingrese una imagen de mayor resolución.",
