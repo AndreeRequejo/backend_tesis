@@ -32,18 +32,13 @@ class ModelService:
 
             # Cargar modelo de clasificación de acné
             try:
-                self.model = torch.load(MODEL_PATH, weights_only=False, map_location=self.device)
+                self.model = MyNet()
+                self.model.load_state_dict(torch.load(MODEL_PATH, weights_only=True, map_location=self.device))
                 logger.info("Modelo de acné cargado")
             except:
                 # Fallback: crear arquitectura y cargar pesos
                 self.model = MyNet()
-                checkpoint = torch.load(MODEL_PATH, weights_only=False, map_location=self.device)
-                if hasattr(checkpoint, 'state_dict'):
-                    self.model.load_state_dict(checkpoint.state_dict())
-                elif isinstance(checkpoint, dict):
-                    self.model.load_state_dict(checkpoint)
-                else:
-                    self.model = checkpoint
+                self.model = torch.load(MODEL_PATH, weights_only=False, map_location=self.device)
                 logger.info("Modelo de acné cargado")
 
             self.model = self.model.to(self.device)
