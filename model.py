@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
-from torchvision.models import EfficientNet_V2_M_Weights, ResNet50_Weights, VGG16_Weights
+from torchvision.models import EfficientNet_V2_S_Weights, EfficientNet_V2_M_Weights, ResNet50_Weights, VGG16_Weights
 
 class LabelSmoothingLoss(nn.Module):
     def __init__(self, smoothing=0.1, dim=-1):
@@ -22,9 +22,9 @@ class MyNet(nn.Module):
     def __init__(self):
         super(MyNet, self).__init__()
 
-        # EfficientNet V2 Medium (por defecto)
-        self.cnn = torchvision.models.efficientnet_v2_m(weights=EfficientNet_V2_M_Weights.DEFAULT)
-        
+        # EfficientNet V2 Small (por defecto)
+        self.cnn = torchvision.models.efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
+
         # Opcional: otras arquitecturas
         # self.cnn = torchvision.models.resnet50(weights=ResNet50_Weights.DEFAULT)
         # self.cnn = torchvision.models.vgg16(weights=VGG16_Weights.DEFAULT)

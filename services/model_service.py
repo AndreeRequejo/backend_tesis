@@ -33,16 +33,12 @@ class ModelService:
             # Cargar modelo de clasificación de acné
             try:
                 self.model = MyNet()
-                self.model.load_state_dict(torch.load(MODEL_PATH, weights_only=True, map_location=self.device))
+                self.model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device))
+                self.model.to(self.device)
+                self.model.eval()
                 logger.info("Modelo de acné cargado")
-            except:
-                # Fallback: crear arquitectura y cargar pesos
-                self.model = MyNet()
-                self.model = torch.load(MODEL_PATH, weights_only=False, map_location=self.device)
-                logger.info("Modelo de acné cargado")
-
-            self.model = self.model.to(self.device)
-            self.model.eval()
+            except Exception as e:
+                logger.error(f"Error al cargar el modelo: {e}")
 
             # Cargar modelo ONNX para detección de anime/3D
             try:
