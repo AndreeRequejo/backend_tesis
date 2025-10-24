@@ -173,7 +173,7 @@ async def predict_single(
         image_tensor = process_image(image_bytes)
 
         # Predecir
-        predicted_class, confidence, probabilities = model_service.predict(image_tensor)
+        predicted_class, confidence, probabilities = model_service.predict(image_tensor, temperature=0.4)
 
         # Tiempo de procesamiento
         processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000

@@ -95,21 +95,25 @@ class ModelService:
             logger.error(f"Error al cargar los modelos: {e}")
             return False
 
-    def predict(self, image_tensor):
-        """Realizar predicción"""
+    def predict(self, image_tensor, temperature: float = 1.0):
+        """Realizar predicción con softmax ajustable por temperatura"""
         with torch.no_grad():
             image_tensor = image_tensor.to(self.device)
             outputs = self.model(image_tensor)
-            probabilities = F.softmax(outputs, dim=1)
+
+            # Aplicar softmax con temperatura
+            probabilities = F.softmax(outputs / temperature, dim=1)
+
+            # Clase con mayor probabilidad
             predicted_class = torch.argmax(probabilities, dim=1).item()
             confidence = torch.max(probabilities).item()
-            
+
             # Crear diccionario de probabilidades
             probs_dict = {}
             probs_array = probabilities.cpu().numpy()[0]
             for i, prob in enumerate(probs_array):
                 probs_dict[CLASS_NAMES[i]] = round(float(prob), 4)
-            
+
             return predicted_class, confidence, probs_dict
 
     def is_model_ready(self):
