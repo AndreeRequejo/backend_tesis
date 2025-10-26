@@ -20,11 +20,6 @@ class PredictionResponse(BaseModel):
                     "Moderado": 0.8567,
                     "Severo": 0.0156
                 },
-                "validacion_imagen": {
-                    "tipo_detectado": "real",
-                    "confianza_tipo": 0.9834,
-                    "es_real": True
-                },
                 "tiempo_procesamiento": 234.5
             }
         }
@@ -36,7 +31,6 @@ class PredictionResponse(BaseModel):
     confianza: float
     confianza_porcentaje: str
     probabilidades: dict
-    validacion_imagen: dict
     tiempo_procesamiento: float
 
 

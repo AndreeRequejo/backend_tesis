@@ -185,11 +185,6 @@ async def predict_single(
             confianza=round(confidence, 4),
             confianza_porcentaje=f"{confidence*100:.2f}%",
             probabilidades=probabilities,
-            validacion_imagen=validation_info or {
-                "tipo_detectado": "unknown",
-                "confianza_tipo": 0.0,
-                "es_real": False
-            },
             tiempo_procesamiento=round(processing_time, 2)
         )
     except HTTPException:
@@ -280,7 +275,7 @@ async def predict_batch(
                     continue
 
                 image_tensor = process_image(image_bytes)
-                predicted_class, confidence, probabilities = model_service.predict(image_tensor)
+                predicted_class, confidence, probabilities = model_service.predict(image_tensor, temperature=0.4)
 
                 predictions.append({
                     "filename": file.filename,
@@ -290,11 +285,6 @@ async def predict_batch(
                     "confianza": round(confidence, 4),
                     "confianza_porcentaje": f"{confidence*100:.2f}%",
                     "probabilidades": probabilities,
-                    "validacion_imagen": validation_info or {
-                        "tipo_detectado": "unknown",
-                        "confianza_tipo": 0.0,
-                        "es_real": False
-                    }
                 })
 
                 successful += 1
