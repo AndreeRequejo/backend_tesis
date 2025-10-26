@@ -61,6 +61,56 @@ def calculate_image_blur(image_array):
     return combined_score
 
 
+def calculate_sharpness_gradient(image_array, roi_box=None):
+    """
+    Calcular nitidez de la imagen usando SOLO gradientes (Sobel)
+    Método más robusto que no se confunde con fondos uniformes
+    
+    Args:
+        image_array: Array numpy de la imagen en escala de grises
+        roi_box: Tupla opcional (x, y, width, height) para analizar solo una región
+                 Si es None, analiza región central (50% de la imagen)
+        
+    Returns:
+        float: Valor de nitidez (mayor valor = más nítido)
+               Valores típicos:
+               - < 10: Muy borroso
+               - 10-15: Borroso
+               - 15-25: Aceptable
+               - > 25: Nítido
+    """
+    # Definir región de interés (ROI)
+    if roi_box is not None:
+        x, y, w, h = roi_box
+        # Agregar margen del 20%
+        margin_x = int(w * 0.2)
+        margin_y = int(h * 0.2)
+        x1 = max(0, x - margin_x)
+        y1 = max(0, y - margin_y)
+        x2 = min(image_array.shape[1], x + w + margin_x)
+        y2 = min(image_array.shape[0], y + h + margin_y)
+        roi = image_array[y1:y2, x1:x2]
+    else:
+        # Usar región central (50% de la imagen)
+        h, w = image_array.shape
+        y1, y2 = int(h * 0.25), int(h * 0.75)
+        x1, x2 = int(w * 0.25), int(w * 0.75)
+        roi = image_array[y1:y2, x1:x2]
+    
+    # Calcular gradientes usando Sobel
+    sobel_x = cv2.Sobel(roi, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(roi, cv2.CV_64F, 0, 1, ksize=3)
+    
+    # Calcular magnitud del gradiente
+    magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
+    
+    # Usar percentil 90 en lugar de media para ser más robusto
+    # Esto ignora áreas planas y se enfoca en bordes reales
+    sharpness = np.percentile(magnitude, 90)
+    
+    return sharpness
+
+
 def calculate_image_brightness(image):
     """
     Calcular el brillo promedio de la imagen

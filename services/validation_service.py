@@ -9,6 +9,7 @@ import mediapipe as mp
 from PIL import Image
 from utils.image_utils import (
     calculate_image_blur, 
+    calculate_sharpness_gradient,
     calculate_image_brightness, 
     calculate_image_contrast,
     preprocess_image_for_onnx
@@ -120,21 +121,28 @@ def validate_image_quality(image_bytes: bytes) -> tuple:
         # Convertir a escala de grises para análisis de desenfoque
         gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
         
-        # Validar desenfoque (solo rechazar si está MUY borrosa)
-        blur_value = calculate_image_blur(gray_image)
-        logger.info(f"Valor de desenfoque calculado: {blur_value:.2f} (umbral: {IMAGE_QUALITY_CONFIG['max_blur_threshold']})")
+        # ===================================================================
+        # VALIDAR NITIDEZ USANDO MÉTODO DE GRADIENTES (SOBEL)
+        # Este método es más robusto que Laplaciano y no se confunde con
+        # fondos uniformes o iluminación suave
+        # ===================================================================
+        sharpness_value = calculate_sharpness_gradient(gray_image, roi_box=None)
+        threshold = IMAGE_QUALITY_CONFIG.get("sharpness_threshold", 15.0)
+        
+        logger.info(f"Nitidez (gradiente): {sharpness_value:.2f} (umbral mínimo: {threshold})")
         
         # Solo rechazar si está extremadamente borrosa
-        if blur_value < IMAGE_QUALITY_CONFIG["max_blur_threshold"]:
-            # Segunda validación: verificar si al menos hay algunos bordes detectables
+        if sharpness_value < threshold:
+            # Validación secundaria: verificar bordes con Canny como respaldo
             edges = cv2.Canny(gray_image, 40, 150)
             edge_density = np.sum(edges > 0) / edges.size
             
             # Si hay suficientes bordes detectados, la imagen probablemente es aceptable
             if edge_density > 0.02:  # Al menos 2% de píxeles son bordes
-                logger.info(f"Imagen salvada por detección de bordes: {edge_density:.3f}")
+                logger.info(f"Imagen salvada por detección de bordes Canny: {edge_density:.3f}")
                 # Continuar con otras validaciones pero no rechazar por desenfoque
             else:
+                logger.warning(f"Imagen rechazada: nitidez {sharpness_value:.2f} < {threshold}, bordes {edge_density:.3f} < 0.02")
                 return False, FACE_VALIDATION_MESSAGES["blurry_image"]
         
         # En modo no estricto, solo hacer validaciones básicas

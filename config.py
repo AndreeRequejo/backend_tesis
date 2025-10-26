@@ -103,7 +103,13 @@ IMAGE_QUALITY_CONFIG = {
     "min_confidence": 0.8,  # Confianza mínima del detector MTCNN (reducido de 0.85)
     "min_face_size": 40,  # Tamaño mínimo del rostro en píxeles (reducido de 50)
     "min_image_size": 80,  # Tamaño mínimo de la imagen en píxeles (reducido de 100)
-    "max_blur_threshold": 50,  # Umbral máximo de desenfoque - más permisivo (reducido de 100)
+    "max_blur_threshold": 50,  # Umbral máximo de desenfoque - más permisivo (reducido de 100) [OBSOLETO - usar sharpness_threshold]
+    "sharpness_threshold": 12.0,  # Umbral de nitidez con método de gradientes (mayor = más estricto)
+                                   # Valores recomendados:
+                                   # - 8-12: Muy permisivo (acepta selfies normales)
+                                   # - 12-18: Permisivo (recomendado)
+                                   # - 18-25: Moderado
+                                   # - 25+: Estricto (solo fotos muy nítidas)
     "min_brightness": 20,  # Brillo mínimo (0-255) - más permisivo (reducido de 30)
     "max_brightness": 240,  # Brillo máximo (0-255) - más permisivo (aumentado de 230)
     "min_contrast": 15,  # Contraste mínimo - más permisivo (reducido de 20)
