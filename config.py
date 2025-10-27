@@ -9,7 +9,8 @@ CLASS_NAMES = [
 ]
 
 # Configuración del modelo
-MODEL_PATH = "core/acne_model.pt"
+MODEL_PATH = "core/vgg16.pt"
+#MODEL_PATH = "core/efficient.pt"
 
 # Configuración del modelo ONNX para detección de anime/3D
 ONNX_MODEL_PATH = "core/model.onnx"
