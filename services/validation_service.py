@@ -15,6 +15,7 @@ from utils.image_utils import (
     preprocess_image_for_onnx
 )
 from config import *
+from .blacklist import is_image_blacklisted
 
 # Importación condicional de MTCNN
 try:
@@ -297,6 +298,19 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
         tuple: (es_válida, mensaje_error, confianza_rostro, info_validacion)
     """
     try:
+        # PRIMERA INSTANCIA: Verificar si la imagen está en la lista negra de hashes
+        try:
+            if is_image_blacklisted(image_bytes):
+                logger.info("Imagen detectada en blacklist - rechazando como no válida")
+                return False, FACE_VALIDATION_MESSAGES["no_face"], None, {
+                    "tipo_detectado": "blacklist",
+                    "confianza_tipo": 0.0,
+                    "es_real": False
+                }
+        except Exception as _:
+            # Si hay algún error con la verificación de blacklist, continuar con el flujo normal
+            logger.warning("No fue posible verificar la blacklist para esta imagen. Continuando con validaciones.")
+
         # PASO 1: MEDIAPIPE - FILTRO INICIAL (MÁS RÁPIDO Y LIGERO)
         # Convertir los bytes a imagen RGB
         try:
