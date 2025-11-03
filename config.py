@@ -9,13 +9,13 @@ CLASS_NAMES = [
 ]
 
 # Configuración del modelo
-MODEL_PATH = "core/vgg16.pt"
+MODEL_PATH = "core/acne_model.pt"
 #MODEL_PATH = "core/efficient.pt"
 
 # Configuración del modelo ONNX para detección de anime/3D
 ONNX_MODEL_PATH = "core/model.onnx"
 ANIME_CLASS_NAMES = ["anime", "real"]  # Clases del modelo ONNX
-REAL_CLASS_CONFIDENCE_THRESHOLD = 0.97  # 97% de confianza mínima para imágenes reales
+REAL_CLASS_CONFIDENCE_THRESHOLD = 0.95  # 97% de confianza mínima para imágenes reales
 ONNX_IMAGE_SIZE = 384  # Tamaño de entrada para el modelo ONNX (384x384)
 
 # Configuración de imagen

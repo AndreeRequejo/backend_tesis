@@ -23,25 +23,25 @@ class MyNet(nn.Module):
         super(MyNet, self).__init__()
 
         # EfficientNet V2 Small (por defecto)
-        # self.cnn = torchvision.models.efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
+        self.cnn = torchvision.models.efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
 
         # Opcional: otras arquitecturas
         # self.cnn = torchvision.models.resnet50(weights=ResNet50_Weights.DEFAULT)
-        self.cnn = torchvision.models.vgg16(weights=VGG16_Weights.DEFAULT)
+        # self.cnn = torchvision.models.vgg16(weights=VGG16_Weights.DEFAULT)
         
         for param in self.cnn.parameters():
             param.requires_grad = True
             
         # Clasificador para EfficientNet
-        # self.cnn.classifier = nn.Sequential(
-        #     nn.Linear(self.cnn.classifier[1].in_features, 512),
-        #     nn.Dropout(p=0.2),
-        #     nn.ReLU(),
-        #     nn.Linear(512, 128),
-        #     nn.Dropout(p=0.2),
-        #     nn.Linear(128, 64),
-        #     nn.Linear(64, 3),     
-        # )
+        self.cnn.classifier = nn.Sequential(
+            nn.Linear(self.cnn.classifier[1].in_features, 512),
+            nn.Dropout(p=0.2),
+            nn.ReLU(),
+            nn.Linear(512, 128),
+            nn.Dropout(p=0.2),
+            nn.Linear(128, 64),
+            nn.Linear(64, 3),     
+        )
         
         # Clasificador para ResNet (descomenta si usas ResNet)
         # self.cnn.fc = nn.Sequential(
@@ -55,18 +55,18 @@ class MyNet(nn.Module):
         # )
         
         # Clasificador para VGG (descomenta si usas VGG)
-        self.cnn.classifier = nn.Sequential(
-            nn.Linear(25088, 4096),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(4096, 512),
-            nn.ReLU(True),
-            nn.Dropout(p=0.2),
-            nn.Linear(512, 128),
-            nn.Dropout(p=0.2),
-            nn.Linear(128, 64),
-            nn.Linear(64, 3)  # Cambiado de 4 a 3 clases
-        )
+        # self.cnn.classifier = nn.Sequential(
+        #     nn.Linear(25088, 4096),
+        #     nn.ReLU(True),
+        #     nn.Dropout(),
+        #     nn.Linear(4096, 512),
+        #     nn.ReLU(True),
+        #     nn.Dropout(p=0.2),
+        #     nn.Linear(512, 128),
+        #     nn.Dropout(p=0.2),
+        #     nn.Linear(128, 64),
+        #     nn.Linear(64, 3)  # Cambiado de 4 a 3 clases
+        # )
         
     def forward(self, img):
         output = self.cnn(img)
