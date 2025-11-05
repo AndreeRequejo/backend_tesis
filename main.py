@@ -1,9 +1,6 @@
 import os
-# Configurar TensorFlow para reducir mensajes informativos
+# Configurar TensorFlow/TFLite para reducir mensajes informativos
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Cambiar a 2 para suprimir warnings
-os.environ['TF_LITE_DISABLE_FEEDBACK_TENSOR'] = '1'  # Suprimir mensajes de feedback tensor
-os.environ['GLOG_minloglevel'] = '2'  # Suprimir logs de Google (MediaPipe)
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,16 +99,6 @@ async def server():
             "docs": "/docs",
             "predict": "/predict",
             "batch": "/predict/batch"
-        },
-        "models_status": {
-            "acne_model": model_service.is_model_ready(),
-            "onnx_model": model_service.is_onnx_ready(),
-            "face_detector": detector_info
-        },
-        "face_detection": {
-            "current_detector": detector_info["detector"],
-            "mtcnn_available": detector_info.get("available", False) if detector_info["detector"] == "mtcnn" else False,
-            "change_instructions": "Modifica FACE_DETECTOR_CONFIG['use_mtcnn'] en config.py para cambiar entre MediaPipe y MTCNN"
         }
     }
 
