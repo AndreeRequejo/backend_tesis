@@ -4,11 +4,13 @@ uvicorn==0.36.0
 pydantic==2.8.0
 python-multipart==0.0.20
 opencv-python==4.8.1.78
-numpy<2.0
+numpy==1.26.4
 tensorflow==2.17.0
 mediapipe==0.10.21
 torch
 torchvision
-facenet-pytorch
-Pillow
+facenet-pytorch==2.5.3
+jax ==0.4.34
+jaxlib==0.4.34
+pillow==10.2.0
 onnxruntime
