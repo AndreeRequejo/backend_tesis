@@ -48,13 +48,7 @@ Las imágenes pasan por un flujo de filtros secuencial antes de la clasificació
 - Solo procesa si hay exactamente 1 rostro detectado
 - Valida que sea imagen REAL vs ANIMADA/3D (≥97% confianza para imágenes reales)
 - Si detecta ANIMADO → RECHAZA
-- Si detecta REAL → Continúa al siguiente filtro
-
-**3. Validaciones de Calidad (Filtro Final)**
-- Solo procesa si es imagen real con 1 rostro
-- Verifica blur, contraste, brillo y dimensiones mínimas
-- Solo rechaza imágenes de calidad extremadamente baja
-- Si pasa → APRUEBA para clasificación de acné
+- Si detecta REAL → APRUEBA para clasificación de acné
 
 ## Clases
 - **0: Acné leve
@@ -65,11 +59,8 @@ Las imágenes pasan por un flujo de filtros secuencial antes de la clasificació
 JPG, PNG, JPEG, WEBP
 
 ## Requisitos de Imagen
-- Debe contener al menos un rostro visible
-- Rostro de tamaño mínimo 40x40 píxeles
-- Resolución mínima 80x80 píxeles
-- El rostro debe ocupar al menos 1.5% del área total de la imagen
-- Solo se rechazan imágenes extremadamente borrosas o de muy baja calidad
+- Debe contener exactamente un rostro visible
+- La imagen debe ser una fotografía real (no animada o 3D)
 """
 
 # Configuración del servidor
@@ -99,37 +90,11 @@ MTCNN_CONFIG = {
     "keep_all": False,  # Solo necesitamos saber si hay rostros, no extraerlos todos
 }
 
-# Configuración para validación de calidad de imagen
-IMAGE_QUALITY_CONFIG = {
-    "min_confidence": 0.8,  # Confianza mínima del detector MTCNN (reducido de 0.85)
-    "min_face_size": 40,  # Tamaño mínimo del rostro en píxeles (reducido de 50)
-    "min_image_size": 80,  # Tamaño mínimo de la imagen en píxeles (reducido de 100)
-    "max_blur_threshold": 50,  # Umbral máximo de desenfoque - más permisivo (reducido de 100) [OBSOLETO - usar sharpness_threshold]
-    "sharpness_threshold": 12.0,  # Umbral de nitidez con método de gradientes (mayor = más estricto)
-                                   # Valores recomendados:
-                                   # - 8-12: Muy permisivo (acepta selfies normales)
-                                   # - 12-18: Permisivo (recomendado)
-                                   # - 18-25: Moderado
-                                   # - 25+: Estricto (solo fotos muy nítidas)
-    "min_brightness": 20,  # Brillo mínimo (0-255) - más permisivo (reducido de 30)
-    "max_brightness": 240,  # Brillo máximo (0-255) - más permisivo (aumentado de 230)
-    "min_contrast": 15,  # Contraste mínimo - más permisivo (reducido de 20)
-    "min_face_area_ratio": 0.015,  # Ratio mínimo del área del rostro - más permisivo (reducido de 0.02)
-    "enable_quality_checks": True,  # Permitir desactivar validaciones de calidad
-    "strict_mode": False,  # Modo estricto desactivado por defecto
-}
-
-# Mensajes de validación de rostros y calidad
+# Mensajes de validación de rostros
 FACE_VALIDATION_MESSAGES = {
     "no_face": "No se detectó ningún rostro en la imagen. Por favor, ingrese una imagen que contenga al menos un rostro visible.",
-    "face_too_small": "El rostro detectado es demasiado pequeño. Por favor, ingrese una imagen con un rostro más grande y visible.",
-    "multiple_faces": "No se detectó un rostro único. Por favor, ingrese una imagen que contenga solo un rostro visible.",
-    "low_confidence": "No se pudo detectar un rostro. Por favor, ingrese otra imagen.",
-    "blurry_image": "No se pudo detectar un rostro claramente. Por favor, ingrese otra imagen.",
-    "poor_lighting": "La iluminación de la imagen es inadecuada (muy oscura o muy brillante). Por favor, ingrese una imagen con mejor iluminación.",
-    "low_contrast": "La imagen tiene contraste muy bajo. Por favor, ingrese una imagen con mejor contraste.",
-    "image_too_small": "La imagen es demasiado pequeña. Por favor, ingrese una imagen de mayor resolución.",
-    "face_too_small_ratio": "El rostro ocupa muy poco espacio en la imagen. Por favor, ingrese una imagen donde el rostro sea más prominente.",
-    "anime_detected": "Se detectó una imagen de personaje animado. Por favor, utilice una imagen real de una persona.",
-    "low_real_confidence": "La confianza de que esta sea una imagen real es muy baja. Por favor, utilice una imagen clara y real de una persona.",
+    "multiple_faces": "Se detectaron múltiples rostros en la imagen. Por favor, ingrese una imagen que contenga solo un rostro visible.",
+    "low_confidence": "No se pudo detectar un rostro con suficiente confianza. Por favor, ingrese otra imagen.",
+    "anime_detected": "Se detectó una imagen de personaje animado o 3D. Por favor, utilice una fotografía real de una persona.",
+    "low_real_confidence": "La imagen no parece ser una fotografía real. Por favor, utilice una fotografía clara y real de una persona.",
 }

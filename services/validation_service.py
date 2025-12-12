@@ -2,18 +2,11 @@
 Servicio para validaciones de imagen y rostros
 """
 import numpy as np
-import cv2
 import io
 import logging
 import mediapipe as mp
 from PIL import Image
-from utils.image_utils import (
-    calculate_image_blur, 
-    calculate_sharpness_gradient,
-    calculate_image_brightness, 
-    calculate_image_contrast,
-    preprocess_image_for_onnx
-)
+from utils.image_utils import preprocess_image_for_onnx
 from config import *
 from .blacklist import is_image_blacklisted
 
@@ -91,83 +84,6 @@ def validate_real_image(image_bytes: bytes, onnx_session) -> tuple:
         return False, 0.0, "error", f"Error al procesar la imagen: {str(e)}"
 
 
-def validate_image_quality(image_bytes: bytes) -> tuple:
-    """
-    Validar la calidad general de la imagen con validaciones menos invasivas
-    
-    Args:
-        image_bytes: Bytes de la imagen
-        
-    Returns:
-        tuple: (es_válida, mensaje_error)
-    """
-    try:
-        # Verificar si las validaciones de calidad están habilitadas
-        if not IMAGE_QUALITY_CONFIG.get("enable_quality_checks", True):
-            return True, ""
-        
-        # Abrir imagen
-        image = Image.open(io.BytesIO(image_bytes))
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        # Verificar tamaño mínimo de imagen (validación básica)
-        width, height = image.size
-        if width < IMAGE_QUALITY_CONFIG["min_image_size"] or height < IMAGE_QUALITY_CONFIG["min_image_size"]:
-            return False, FACE_VALIDATION_MESSAGES["image_too_small"]
-        
-        # Convertir a array numpy para análisis
-        image_array = np.array(image)
-        
-        # Convertir a escala de grises para análisis de desenfoque
-        gray_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2GRAY)
-        
-        # ===================================================================
-        # VALIDAR NITIDEZ USANDO MÉTODO DE GRADIENTES (SOBEL)
-        # Este método es más robusto que Laplaciano y no se confunde con
-        # fondos uniformes o iluminación suave
-        # ===================================================================
-        sharpness_value = calculate_sharpness_gradient(gray_image, roi_box=None)
-        threshold = IMAGE_QUALITY_CONFIG.get("sharpness_threshold", 15.0)
-        
-        logger.info(f"Nitidez (gradiente): {sharpness_value:.2f} (umbral mínimo: {threshold})")
-        
-        # Solo rechazar si está extremadamente borrosa
-        if sharpness_value < threshold:
-            # Validación secundaria: verificar bordes con Canny como respaldo
-            edges = cv2.Canny(gray_image, 40, 150)
-            edge_density = np.sum(edges > 0) / edges.size
-            
-            # Si hay suficientes bordes detectados, la imagen probablemente es aceptable
-            if edge_density > 0.02:  # Al menos 2% de píxeles son bordes
-                logger.info(f"Imagen salvada por detección de bordes Canny: {edge_density:.3f}")
-                # Continuar con otras validaciones pero no rechazar por desenfoque
-            else:
-                logger.warning(f"Imagen rechazada: nitidez {sharpness_value:.2f} < {threshold}, bordes {edge_density:.3f} < 0.02")
-                return False, FACE_VALIDATION_MESSAGES["blurry_image"]
-        
-        # En modo no estricto, solo hacer validaciones básicas
-        if not IMAGE_QUALITY_CONFIG.get("strict_mode", False):
-            return True, ""
-        
-        # Validaciones adicionales solo en modo estricto
-        # Validar brillo extremo
-        brightness = calculate_image_brightness(image)
-        if brightness < IMAGE_QUALITY_CONFIG["min_brightness"] or brightness > IMAGE_QUALITY_CONFIG["max_brightness"]:
-            return False, FACE_VALIDATION_MESSAGES["poor_lighting"]
-        
-        # Validar contraste muy bajo
-        contrast = calculate_image_contrast(image)
-        if contrast < IMAGE_QUALITY_CONFIG["min_contrast"]:
-            return False, FACE_VALIDATION_MESSAGES["low_contrast"]
-        
-        return True, ""
-        
-    except Exception as e:
-        logger.error(f"Error en validación de calidad de imagen: {e}")
-        return False, f"Error al evaluar la calidad de la imagen: {str(e)}"
-
-
 def validate_face_with_mtcnn(image_bytes: bytes, mtcnn_detector) -> tuple:
     """
     Validar rostros usando MTCNN de facenet_pytorch
@@ -218,35 +134,6 @@ def validate_face_with_mtcnn(image_bytes: bytes, mtcnn_detector) -> tuple:
                 "threshold": FACE_DETECTOR_CONFIG["mtcnn_confidence"]
             }
         
-        # Verificar tamaño del rostro (MTCNN es más preciso en esto)
-        face_width = largest_box[2] - largest_box[0]
-        face_height = largest_box[3] - largest_box[1]
-        
-        # Verificar tamaño mínimo del rostro
-        if face_width < IMAGE_QUALITY_CONFIG["min_face_size"] or face_height < IMAGE_QUALITY_CONFIG["min_face_size"]:
-            logger.info(f"MTCNN: Rostro demasiado pequeño ({face_width:.0f}x{face_height:.0f} < {IMAGE_QUALITY_CONFIG['min_face_size']})")
-            return False, FACE_VALIDATION_MESSAGES["face_too_small"], best_confidence, {
-                "detector": "mtcnn",
-                "faces_detected": 1,
-                "confidence": best_confidence,
-                "face_size": f"{face_width:.0f}x{face_height:.0f}"
-            }
-        
-        # Verificar ratio del área del rostro respecto a la imagen
-        image_width, image_height = image.size
-        face_area = face_width * face_height
-        image_area = image_width * image_height
-        face_area_ratio = face_area / image_area
-        
-        if face_area_ratio < IMAGE_QUALITY_CONFIG["min_face_area_ratio"]:
-            logger.info(f"MTCNN: Área del rostro muy pequeña ({face_area_ratio:.3f} < {IMAGE_QUALITY_CONFIG['min_face_area_ratio']})")
-            return False, FACE_VALIDATION_MESSAGES["face_too_small_ratio"], best_confidence, {
-                "detector": "mtcnn",
-                "faces_detected": 1,
-                "confidence": best_confidence,
-                "face_area_ratio": face_area_ratio
-            }
-        
         # Log de información de calidad
         logger.info(f"MTCNN: Rostro válido detectado - Confianza: {best_confidence:.3f}")
         
@@ -254,8 +141,6 @@ def validate_face_with_mtcnn(image_bytes: bytes, mtcnn_detector) -> tuple:
             "detector": "mtcnn",
             "faces_detected": 1,
             "confidence": best_confidence,
-            "face_size": f"{face_width:.0f}x{face_height:.0f}",
-            "face_area_ratio": face_area_ratio,
             "box": largest_box.tolist()
         }
         
@@ -276,12 +161,10 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
     1. MediaPipe: Detección RÁPIDA de múltiples rostros (filtro inicial ~50ms)
        → Si NO hay rostros o hay MÚLTIPLES rostros → RECHAZAR inmediatamente
     2. MTCNN: Validación PRECISA del rostro único (~100ms)
-       → Verificar tamaño, calidad, confianza del rostro
+       → Verificar confianza del rostro
     3. ONNX Model: Validar si es imagen REAL vs ANIMADA (~100ms)
        → Si es ANIMADO/3D → RECHAZAR
-    4. Validaciones de Calidad: Blur, contraste, brillo (opcional)
-       → Si calidad muy baja → RECHAZAR
-    5. Continuar al modelo principal de clasificación de acné
+    4. Continuar al modelo principal de clasificación de acné
     
     Args:
         image_bytes: Bytes de la imagen
@@ -380,17 +263,6 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector=None
                 "tipo_detectado": detected_type,
                 "confianza_tipo": real_confidence,
                 "es_real": False,
-                "detector_info": detector_info
-            }
-
-        # PASO 4: VALIDACIONES DE CALIDAD - FILTRO DE CALIDAD (Solo si es imagen real)
-        quality_valid, quality_error = validate_image_quality(image_bytes)
-        if not quality_valid:
-            logger.info(f"Calidad: Imagen rechazada - {quality_error}")
-            return False, quality_error, confianza_rostro, {
-                "tipo_detectado": detected_type,
-                "confianza_tipo": real_confidence,
-                "es_real": True,
                 "detector_info": detector_info
             }
         

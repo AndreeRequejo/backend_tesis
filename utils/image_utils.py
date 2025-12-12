@@ -2,10 +2,9 @@
 Utilidades para procesamiento de imágenes
 """
 import numpy as np
-import cv2
 import io
 import logging
-from PIL import Image, ImageStat
+from PIL import Image
 from torchvision import transforms
 from fastapi import UploadFile
 from config import *
@@ -33,110 +32,6 @@ def process_image(image_bytes: bytes):
 def validate_image(file: UploadFile) -> bool:
     """Validar tipo de imagen"""
     return file.content_type in VALID_IMAGE_TYPES if file.content_type else False
-
-
-def calculate_image_blur(image_array):
-    """
-    Calcular el nivel de desenfoque usando múltiples métricas para mayor precisión
-    
-    Args:
-        image_array: Array numpy de la imagen en escala de grises
-        
-    Returns:
-        float: Valor de desenfoque (mayor valor = menos borroso)
-    """
-    # Método 1: Varianza del Laplaciano (método principal)
-    laplacian_var = cv2.Laplacian(image_array, cv2.CV_64F).var()
-    
-    # Método 2: Gradiente de Sobel para validación adicional
-    sobel_x = cv2.Sobel(image_array, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(image_array, cv2.CV_64F, 0, 1, ksize=3)
-    sobel_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-    sobel_mean = np.mean(sobel_magnitude)
-    
-    # Combinar ambas métricas para mejor precisión
-    # Si la imagen tiene bordes definidos (Sobel alto), es menos probable que esté borrosa
-    combined_score = laplacian_var + (sobel_mean * 0.1)
-    
-    return combined_score
-
-
-def calculate_sharpness_gradient(image_array, roi_box=None):
-    """
-    Calcular nitidez de la imagen usando SOLO gradientes (Sobel)
-    Método más robusto que no se confunde con fondos uniformes
-    
-    Args:
-        image_array: Array numpy de la imagen en escala de grises
-        roi_box: Tupla opcional (x, y, width, height) para analizar solo una región
-                 Si es None, analiza región central (50% de la imagen)
-        
-    Returns:
-        float: Valor de nitidez (mayor valor = más nítido)
-               Valores típicos:
-               - < 10: Muy borroso
-               - 10-15: Borroso
-               - 15-25: Aceptable
-               - > 25: Nítido
-    """
-    # Definir región de interés (ROI)
-    if roi_box is not None:
-        x, y, w, h = roi_box
-        # Agregar margen del 20%
-        margin_x = int(w * 0.2)
-        margin_y = int(h * 0.2)
-        x1 = max(0, x - margin_x)
-        y1 = max(0, y - margin_y)
-        x2 = min(image_array.shape[1], x + w + margin_x)
-        y2 = min(image_array.shape[0], y + h + margin_y)
-        roi = image_array[y1:y2, x1:x2]
-    else:
-        # Usar región central (50% de la imagen)
-        h, w = image_array.shape
-        y1, y2 = int(h * 0.25), int(h * 0.75)
-        x1, x2 = int(w * 0.25), int(w * 0.75)
-        roi = image_array[y1:y2, x1:x2]
-    
-    # Calcular gradientes usando Sobel
-    sobel_x = cv2.Sobel(roi, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(roi, cv2.CV_64F, 0, 1, ksize=3)
-    
-    # Calcular magnitud del gradiente
-    magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-    
-    # Usar percentil 90 en lugar de media para ser más robusto
-    # Esto ignora áreas planas y se enfoca en bordes reales
-    sharpness = np.percentile(magnitude, 90)
-    
-    return sharpness
-
-
-def calculate_image_brightness(image):
-    """
-    Calcular el brillo promedio de la imagen
-    
-    Args:
-        image: Imagen PIL
-        
-    Returns:
-        float: Brillo promedio (0-255)
-    """
-    stat = ImageStat.Stat(image)
-    return stat.mean[0] if len(stat.mean) == 1 else sum(stat.mean) / len(stat.mean)
-
-
-def calculate_image_contrast(image):
-    """
-    Calcular el contraste de la imagen usando la desviación estándar
-    
-    Args:
-        image: Imagen PIL
-        
-    Returns:
-        float: Valor de contraste
-    """
-    stat = ImageStat.Stat(image)
-    return stat.stddev[0] if len(stat.stddev) == 1 else sum(stat.stddev) / len(stat.stddev)
 
 
 def preprocess_image_for_onnx(image_bytes: bytes, onnx_session) -> np.ndarray:

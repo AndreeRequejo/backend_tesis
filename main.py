@@ -104,8 +104,7 @@ async def server():
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 async def predict_single(
-    file: UploadFile = File(..., description="Imagen para clasificar"),
-    skip_quality_check: bool = False
+    file: UploadFile = File(..., description="Imagen para clasificar")
 ):
     start_time = datetime.utcnow()
     try:
@@ -132,30 +131,21 @@ async def predict_single(
 
         # FLUJO DE VALIDACIÓN:
         # 1. MediaPipe: Detectar presencia y cantidad de rostros (filtro rápido inicial)
-        # 2. ONNX Model: Validar si es imagen real vs animada (solo si hay 1 rostro)  
-        # 3. Validaciones de calidad: Blur, contraste, brillo (solo si es imagen real)
+        # 2. MTCNN: Validar confianza del rostro único
+        # 3. ONNX Model: Validar si es imagen real vs animada
         # 4. Proceder al modelo principal de clasificación de acné
         
-        # Si skip_quality_check es True, temporalmente deshabilitar validaciones de calidad
-        original_quality_setting = IMAGE_QUALITY_CONFIG.get("enable_quality_checks", True)
-        if skip_quality_check:
-            IMAGE_QUALITY_CONFIG["enable_quality_checks"] = False
-
-        try:
-            face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
-                image_bytes, 
-                model_service.get_onnx_session(),
-                model_service.get_mtcnn()  # Pasar el detector MTCNN
+        face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
+            image_bytes, 
+            model_service.get_onnx_session(),
+            model_service.get_mtcnn()
+        )
+        
+        if not face_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=face_error_msg
             )
-            
-            if not face_valid:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=face_error_msg
-                )
-        finally:
-            # Restaurar configuración original
-            IMAGE_QUALITY_CONFIG["enable_quality_checks"] = original_quality_setting
 
         image_tensor = process_image(image_bytes)
 
@@ -196,7 +186,6 @@ async def predict_batch(
     Clasificar múltiples imágenes
     
     Sube hasta 3 imágenes y obtén las clasificaciones.
-    Cada imagen debe contener al menos un rostro visible.
     """
     start_time = datetime.utcnow()
     try:
@@ -235,7 +224,7 @@ async def predict_batch(
 
                 image_bytes = await file.read()
 
-                # FLUJO DE VALIDACIÓN: MediaPipe/MTCNN → ONNX → Calidad → Modelo Principal
+                # FLUJO DE VALIDACIÓN: MediaPipe → MTCNN → ONNX → Modelo Principal
                 face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
                     image_bytes, 
                     model_service.get_onnx_session(),
