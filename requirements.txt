@@ -1,16 +1,11 @@
-fastapi==0.117.1
-scalar_fastapi==1.4.2
-uvicorn==0.36.0
-pydantic==2.8.0
+fastapi==0.124.2
+scalar_fastapi==1.5.0
+uvicorn==0.38.0
 python-multipart==0.0.20
-opencv-python==4.8.1.78
+facenet-pytorch==2.6.0
 numpy==1.26.4
-tensorflow==2.17.0
-mediapipe==0.10.21
+--index-url https://download.pytorch.org/whl/cu130
 torch
 torchvision
-facenet-pytorch==2.5.3
-jax ==0.4.34
-jaxlib==0.4.34
-pillow==10.2.0
 onnxruntime
+mediapipe==0.10.21
