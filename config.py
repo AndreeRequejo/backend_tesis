@@ -5,7 +5,6 @@ CLASS_NAMES = [
     "Leve",      # Clase 0 - Acné leve
     "Moderado",  # Clase 1 - Acné moderado
     "Severo",    # Clase 2 - Acné severo
-    #"Muy Severo" # Clase 3 - Muy severo
 ]
 
 # Configuración del modelo
@@ -22,6 +21,35 @@ ONNX_IMAGE_SIZE = 384  # Tamaño de entrada para el modelo ONNX (384x384)
 IMAGE_SIZE = (224, 224)
 MEAN = (0.5, 0.5, 0.5)
 STD = (0.5, 0.5, 0.5)
+
+# Configuración del servidor
+HOST = "127.0.0.1"
+PORT = 8080
+
+# Límites
+MAX_BATCH_SIZE = 3
+VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
+
+# Configuración del detector de rostros
+FACE_DETECTOR_CONFIG = {
+    "mediapipe_confidence": 0.8,  # Confianza mínima para MediaPipe (filtro inicial)
+    "mtcnn_confidence": 0.8,  # Confianza mínima para MTCNN
+}
+
+# Configuración MTCNN para validación de rostros
+MTCNN_CONFIG = {
+    "image_size": 160,  # Tamaño estándar para MTCNN  
+    "margin": 0,  # Margen alrededor del rostro
+}
+
+# Mensajes de validación de rostros
+FACE_VALIDATION_MESSAGES = {
+    "no_face": "No se detectó ningún rostro en la imagen. Por favor, ingrese una imagen que contenga al menos un rostro visible.",
+    "multiple_faces": "Se detectaron múltiples rostros en la imagen. Por favor, ingrese una imagen que contenga solo un rostro visible.",
+    "low_confidence": "No se pudo detectar un rostro con suficiente confianza. Por favor, ingrese otra imagen.",
+    "anime_detected": "Se detectó una imagen de personaje animado o 3D. Por favor, utilice una fotografía real de una persona.",
+    "low_real_confidence": "La imagen no parece ser una fotografía real. Por favor, utilice una fotografía clara y real de una persona.",
+}
 
 # Configuración de la API
 API_TITLE = "Documentación Tesis Acne"
@@ -46,7 +74,7 @@ Las imágenes pasan por un flujo de filtros secuencial antes de la clasificació
 
 **2. ONNX Model (Filtro de Autenticidad)**
 - Solo procesa si hay exactamente 1 rostro detectado
-- Valida que sea imagen REAL vs ANIMADA/3D (≥97% confianza para imágenes reales)
+- Valida que sea imagen REAL vs ANIMADA/3D
 - Si detecta ANIMADO → RECHAZA
 - Si detecta REAL → APRUEBA para clasificación de acné
 
@@ -57,44 +85,4 @@ Las imágenes pasan por un flujo de filtros secuencial antes de la clasificació
 
 ## Formatos Soportados
 JPG, PNG, JPEG, WEBP
-
-## Requisitos de Imagen
-- Debe contener exactamente un rostro visible
-- La imagen debe ser una fotografía real (no animada o 3D)
 """
-
-# Configuración del servidor
-HOST = "127.0.0.1"
-PORT = 8080
-
-# Límites
-MAX_BATCH_SIZE = 3
-VALID_IMAGE_TYPES = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
-
-# Configuración del detector de rostros
-FACE_DETECTOR_CONFIG = {
-    "use_mtcnn": True,  # True para MTCNN, False para MediaPipe
-    "mediapipe_confidence": 0.8,  # Confianza mínima para MediaPipe
-    "mtcnn_confidence": 0.8,  # Confianza mínima para MTCNN
-}
-
-# Configuración MTCNN para validación de rostros
-MTCNN_CONFIG = {
-    "image_size": 160,  # Tamaño estándar para MTCNN  
-    "margin": 0,  # Margen alrededor del rostro
-    "min_face_size": 20,  # Tamaño mínimo de rostro en píxeles
-    "thresholds": [0.6, 0.7, 0.7],  # Umbrales para las 3 redes de MTCNN
-    "factor": 0.709,  # Factor de escalado para pirámide de imágenes
-    "post_process": True,  # Aplicar post-procesamiento
-    "select_largest": True,  # Seleccionar el rostro más grande si hay múltiples
-    "keep_all": False,  # Solo necesitamos saber si hay rostros, no extraerlos todos
-}
-
-# Mensajes de validación de rostros
-FACE_VALIDATION_MESSAGES = {
-    "no_face": "No se detectó ningún rostro en la imagen. Por favor, ingrese una imagen que contenga al menos un rostro visible.",
-    "multiple_faces": "Se detectaron múltiples rostros en la imagen. Por favor, ingrese una imagen que contenga solo un rostro visible.",
-    "low_confidence": "No se pudo detectar un rostro con suficiente confianza. Por favor, ingrese otra imagen.",
-    "anime_detected": "Se detectó una imagen de personaje animado o 3D. Por favor, utilice una fotografía real de una persona.",
-    "low_real_confidence": "La imagen no parece ser una fotografía real. Por favor, utilice una fotografía clara y real de una persona.",
-}

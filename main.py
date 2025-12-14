@@ -1,7 +1,3 @@
-import os
-# Configurar TensorFlow/TFLite para reducir mensajes informativos
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -9,18 +5,13 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 import uvicorn
-
-# Scalar documentation
 from scalar_fastapi import get_scalar_api_reference, Layout
 
-# Importaciones locales
 from config import *
 from models.schemas import PredictionResponse, BatchResponse
 from services.model_service import model_service
-from services.validation_service import validate_face_in_image
-from utils.image_utils import validate_image, process_image
+from utils.helpers import check_model_ready, validate_and_read_image, process_single_prediction
 
-# Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -30,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Iniciando
     logger.info("Iniciando servidor...")
     success = model_service.load_models()
     if success:
@@ -39,8 +30,7 @@ async def lifespan(app: FastAPI):
         logger.error("Error al iniciar")
     
     yield
-    
-    # Shutdown
+    # Apagando
     logger.info("Cerrando servidor...")
 
 # ===============================
@@ -89,88 +79,29 @@ async def scalar_docs():
 
 @app.get("/status", tags=["General"])
 async def server():
-    """Información de la API"""
-    detector_info = model_service.get_detector_info()
-    
     return {
         "message": "Documentación Tesis Acne",
         "version": API_VERSION,
-        "endpoints": {
-            "docs": "/docs",
-            "predict": "/predict",
-            "batch": "/predict/batch"
-        }
+        "status": "running"
     }
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
-async def predict_single(
-    file: UploadFile = File(..., description="Imagen para clasificar")
-):
+async def predict_single(file: UploadFile = File(..., description="Imagen para clasificar")):
     start_time = datetime.utcnow()
     try:
-        # Validaciones
-        if not model_service.is_model_ready():
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Modelo no disponible"
-            )
-
-        if not validate_image(file):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Tipo de archivo no válido: {file.content_type}"
-            )
-
-        # Procesar imagen
-        image_bytes = await file.read()
-        if len(image_bytes) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Archivo vacío"
-            )
-
-        # FLUJO DE VALIDACIÓN:
-        # 1. MediaPipe: Detectar presencia y cantidad de rostros (filtro rápido inicial)
-        # 2. MTCNN: Validar confianza del rostro único
-        # 3. ONNX Model: Validar si es imagen real vs animada
-        # 4. Proceder al modelo principal de clasificación de acné
+        check_model_ready()
+        image_bytes = await validate_and_read_image(file)
+        result = process_single_prediction(image_bytes, temperature=0.44)
         
-        face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
-            image_bytes, 
-            model_service.get_onnx_session(),
-            model_service.get_mtcnn()
-        )
-        
-        if not face_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=face_error_msg
-            )
-
-        image_tensor = process_image(image_bytes)
-
-        # Predecir
-        predicted_class, confidence, probabilities = model_service.predict(image_tensor, temperature=0.44)
-
-        # Tiempo de procesamiento
         processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-
+        
         return PredictionResponse(
             success=True,
-            prediccion_class=predicted_class,
-            prediccion_label=CLASS_NAMES[predicted_class],
-            confianza=round(confidence, 4),
-            confianza_porcentaje=f"{confidence*100:.2f}%",
-            probabilidades=probabilities,
-            tiempo_procesamiento=round(processing_time, 2)
+            tiempo_procesamiento=round(processing_time, 2),
+            **result
         )
     except HTTPException:
         raise
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
     except Exception as e:
         logger.error(f"Error en predicción: {e}")
         raise HTTPException(
@@ -179,24 +110,13 @@ async def predict_single(
         )
 
 @app.post("/predict/batch", response_model=BatchResponse, tags=["Prediction"])
-async def predict_batch(
-    files: List[UploadFile] = File(..., description="Lista de imágenes (máx 3)")
-):
-    """
-    Clasificar múltiples imágenes
-    
-    Sube hasta 3 imágenes y obtén las clasificaciones.
-    """
+async def predict_batch(files: List[UploadFile] = File(..., description="Lista de imágenes (máx 3)")):
+    """Clasificar múltiples imágenes. Sube hasta 3 imágenes y obtén las clasificaciones."""
     start_time = datetime.utcnow()
     try:
-        # Validaciones
-        if not model_service.is_model_ready():
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Modelo no disponible"
-            )
-
-        if len(files) == 0:
+        check_model_ready()
+        
+        if not files:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No se enviaron archivos"
@@ -208,63 +128,27 @@ async def predict_batch(
                 detail=f"Máximo {MAX_BATCH_SIZE} archivos"
             )
 
-        # Procesar cada archivo
         predictions = []
         successful = 0
 
         for file in files:
             try:
-                if not validate_image(file):
-                    predictions.append({
-                        "filename": file.filename,
-                        "success": False,
-                        "error": f"Tipo no válido: {file.content_type}"
-                    })
-                    continue
-
-                image_bytes = await file.read()
-
-                # FLUJO DE VALIDACIÓN: MediaPipe → MTCNN → ONNX → Modelo Principal
-                face_valid, face_error_msg, face_confidence, validation_info = validate_face_in_image(
-                    image_bytes, 
-                    model_service.get_onnx_session(),
-                    model_service.get_mtcnn()  # Pasar el detector MTCNN
-                )
-                if face_confidence is not None:
-                    try:
-                        logger.info(f"Confianza del rostro detectado en '{file.filename}': {face_confidence:.4f}")
-                    except Exception:
-                        logger.info(f"Confianza del rostro detectado en '{file.filename}': {face_confidence}")
+                image_bytes = await validate_and_read_image(file)
+                result = process_single_prediction(image_bytes, temperature=0.4)
                 
-                # Loggear información de validación ONNX
-                if validation_info:
-                    logger.info(f"Validación ONNX para '{file.filename}' - Tipo: {validation_info.get('tipo_detectado', 'unknown')}, "
-                              f"Confianza: {validation_info.get('confianza_tipo', 0.0):.4f}, "
-                              f"Es real: {validation_info.get('es_real', False)}")
-                
-                if not face_valid:
-                    predictions.append({
-                        "filename": file.filename,
-                        "success": False,
-                        "error": face_error_msg
-                    })
-                    continue
-
-                image_tensor = process_image(image_bytes)
-                predicted_class, confidence, probabilities = model_service.predict(image_tensor, temperature=0.4)
-
                 predictions.append({
                     "filename": file.filename,
                     "success": True,
-                    "prediccion_class": predicted_class,
-                    "prediccion_label": CLASS_NAMES[predicted_class],
-                    "confianza": round(confidence, 4),
-                    "confianza_porcentaje": f"{confidence*100:.2f}%",
-                    "probabilidades": probabilities,
+                    **result
                 })
-
                 successful += 1
 
+            except HTTPException as e:
+                predictions.append({
+                    "filename": file.filename,
+                    "success": False,
+                    "error": e.detail
+                })
             except Exception as e:
                 predictions.append({
                     "filename": file.filename,
