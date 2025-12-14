@@ -6,13 +6,12 @@ import logging
 from datetime import datetime
 import uvicorn
 from scalar_fastapi import get_scalar_api_reference, Layout
-
 from config import *
 from models.schemas import PredictionResponse, BatchResponse
 from services.model_service import model_service
 from utils.helpers import check_model_ready, validate_and_read_image, process_single_prediction
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ===============================
@@ -184,5 +183,5 @@ if __name__ == "__main__":
         "main:app",
         host=HOST,
         port=PORT,
-        reload=True
+        reload=False
     )
