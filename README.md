@@ -22,7 +22,9 @@ Esta API permite clasificar la **severidad del acné** en imágenes faciales med
 2. **Crear entorno virtual e instalar dependencias**
 
 ```bash
-pip install -r requirements.txt
+  python -m venv venv
+  venv\Scripts\activate
+  pip install -r requirements.txt
 ```
 
 3. **Colocar el modelo entrenado**
@@ -32,7 +34,7 @@ pip install -r requirements.txt
 4. **Ejecutar el servidor**
 
 ```bash
-python main.py
+  python main.py
 ```
 
 El servidor se iniciará en:
