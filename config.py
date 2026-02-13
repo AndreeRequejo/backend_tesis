@@ -17,6 +17,9 @@ ANIME_CLASS_NAMES = ["anime", "real"]  # Clases del modelo ONNX
 REAL_CLASS_CONFIDENCE_THRESHOLD = 0.93  # 93% de confianza mínima para imágenes reales
 ONNX_IMAGE_SIZE = 384  # Tamaño de entrada para el modelo ONNX (384x384)
 
+# Configuración del modelo MediaPipe para detección de rostros
+MEDIAPIPE_FACE_DETECTION_MODEL = "core/face_detection.tflite"
+
 # Configuración de imagen
 IMAGE_SIZE = (224, 224)
 MEAN = (0.5, 0.5, 0.5)

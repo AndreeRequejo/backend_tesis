@@ -5,6 +5,8 @@ import numpy as np
 import io
 import logging
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 from PIL import Image
 from utils.image_utils import preprocess_image_for_onnx
 from config import *
@@ -82,20 +84,26 @@ def validate_face_in_image(image_bytes: bytes, onnx_session, mtcnn_detector) -> 
         if image_np.ndim != 3 or image_np.shape[2] != 3:
             return False, "La imagen debe tener 3 canales RGB"
 
-        # PASO 1: MediaPipe - Detección rápida
-        mp_face_detection = mp.solutions.face_detection
-        with mp_face_detection.FaceDetection(
-            model_selection=1, 
+        # PASO 1: MediaPipe - Detección rápida (nueva API)
+        # Configurar opciones del detector con el modelo de face_detection
+        base_options = python.BaseOptions(model_asset_path=MEDIAPIPE_FACE_DETECTION_MODEL)
+        options = vision.FaceDetectorOptions(
+            base_options=base_options,
             min_detection_confidence=FACE_DETECTOR_CONFIG["mediapipe_confidence"]
-        ) as face_detection:
-            results = face_detection.process(image_np)
-            
-            if not results.detections:
-                return False, FACE_VALIDATION_MESSAGES["no_face"]
-            
-            if len(results.detections) > 1:
-                logger.info(f"MediaPipe: {len(results.detections)} rostros")
-                return False, FACE_VALIDATION_MESSAGES["multiple_faces"]
+        )
+        
+        # Crear detector y procesar imagen
+        detector = vision.FaceDetector.create_from_options(options)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_np)
+        detection_result = detector.detect(mp_image)
+        detector.close()
+        
+        if not detection_result.detections:
+            return False, FACE_VALIDATION_MESSAGES["no_face"]
+        
+        if len(detection_result.detections) > 1:
+            logger.info(f"MediaPipe: {len(detection_result.detections)} rostros")
+            return False, FACE_VALIDATION_MESSAGES["multiple_faces"]
 
         # PASO 2: MTCNN - Validación precisa
         face_valid, face_error = validate_face_with_mtcnn(image_bytes, mtcnn_detector)
