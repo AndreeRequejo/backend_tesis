@@ -22,9 +22,8 @@ Esta API permite clasificar la **severidad del acné** en imágenes faciales med
 2. **Crear entorno virtual e instalar dependencias**
 
 ```bash
-  python -m venv venv
-  venv\Scripts\activate
-  pip install -r requirements.txt
+  uv venv
+  uv sync
 ```
 
 3. **Colocar el modelo entrenado**
@@ -34,7 +33,8 @@ Esta API permite clasificar la **severidad del acné** en imágenes faciales med
 4. **Ejecutar el servidor**
 
 ```bash
-  python main.py
+  uv run uvicorn app.main:app --reload
+  uv run uvicorn main:app
 ```
 
 El servidor se iniciará en:
